@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CampaignData {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @unique
+  impressions Int
+  clicks      Int
+  spend       Float
+  conversions Int
+  issues      Issue[]
+  createdAt   DateTime @default(now())
+}
+
+model Issue {
+  id             Int         @id @default(autoincrement())
+  campaignDataId Int
+  campaignData   CampaignData @relation(fields: [campaignDataId], references: [id], onDelete: Cascade)
+  type           IssueType
+  status         IssueStatus @default(OPEN)
+  notes          String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+enum IssueType {
+  ZERO_IMPRESSIONS
+  HIGH_SPEND_NO_CONVERSIONS
+  SUDDEN_DROP_IMPRESSIONS
+  LOW_CTR
+}
+
+enum IssueStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+}
