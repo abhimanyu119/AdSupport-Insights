@@ -25,6 +25,7 @@ export async function uploadCampaignData(formData) {
   }
 
   const data = parsed.data.map((row) => ({
+    campaign: row.campaign_name || "Unknown Campaign",
     date: new Date(row.date),
     impressions: parseInt(row.impressions),
     clicks: parseInt(row.clicks),
@@ -44,10 +45,13 @@ export async function uploadCampaignData(formData) {
     }
   }
 
+  // Clear existing data before uploading new data
+  await prisma.campaignData.deleteMany({});
+  await prisma.issue.deleteMany({});
+
   // Save to DB
   await prisma.campaignData.createMany({
     data,
-    skipDuplicates: true, // assuming date is unique
   });
 
   // Run diagnostics
@@ -64,59 +68,98 @@ async function runDiagnostics() {
 
   if (allData.length < 2) return; // need at least 2 for comparisons
 
+  // Severity mapping
+  const severityMap = {
+    ZERO_IMPRESSIONS: "CRITICAL",
+    HIGH_SPEND_NO_CONVERSIONS: "HIGH",
+    SUDDEN_DROP_IMPRESSIONS: "MEDIUM",
+    LOW_CTR: "LOW",
+  };
+
   // Simple rules
   for (const data of allData) {
     const issues = [];
 
-    // Zero impressions
+    // Zero impressions (CRITICAL)
     if (data.impressions === 0) {
       issues.push({
         type: "ZERO_IMPRESSIONS",
-        notes: `Zero impressions on ${data.date.toDateString()}. Possible delivery issue.`,
+        severity: "CRITICAL",
+        notes: `${data.campaign} spent $${data.spend} with zero impressions and ${data.clicks} clicks on ${data.date.toDateString()}, indicating likely delivery failure.`,
       });
     }
 
-    // High spend no conversions
+    // High spend no conversions (HIGH)
     if (data.spend > 100 && data.conversions === 0) {
       issues.push({
         type: "HIGH_SPEND_NO_CONVERSIONS",
-        notes: `High spend (${data.spend}) with zero conversions on ${data.date.toDateString()}. Check tracking or targeting.`,
+        severity: "HIGH",
+        notes: `${data.campaign} spent $${data.spend} with zero conversions (${data.impressions} impressions, ${data.clicks} clicks) on ${data.date.toDateString()}, indicating tracking or targeting issues.`,
       });
     }
 
-    // Low CTR
+    // Low CTR (LOW)
     const ctr = data.clicks / data.impressions;
     if (data.impressions > 0 && ctr < 0.01) {
       issues.push({
         type: "LOW_CTR",
-        notes: `Low CTR (${(ctr * 100).toFixed(2)}%) on ${data.date.toDateString()}. Review creative or relevance.`,
+        severity: "LOW",
+        notes: `${data.campaign} has ${(ctr * 100).toFixed(2)}% CTR (${data.clicks} clicks from ${data.impressions} impressions, $${data.spend} spent) on ${data.date.toDateString()}. Review creative or audience relevance.`,
       });
     }
 
-    // Sudden drop in impressions (compare with previous day)
+    // Sudden drop in impressions (MEDIUM) - improved logic
     const prevData = allData.find(
-      (d) => d.date.getTime() === data.date.getTime() - 24 * 60 * 60 * 1000,
+      (d) =>
+        d.campaign === data.campaign &&
+        d.date.getTime() === data.date.getTime() - 24 * 60 * 60 * 1000,
     );
     if (
       prevData &&
-      prevData.impressions > 0 &&
-      data.impressions / prevData.impressions < 0.5
+      prevData.impressions > 500 && // minimum baseline
+      data.impressions / prevData.impressions < 0.3 // 70% drop threshold
     ) {
       issues.push({
         type: "SUDDEN_DROP_IMPRESSIONS",
-        notes: `Sudden drop in impressions from ${prevData.impressions} to ${data.impressions} on ${data.date.toDateString()}. Possible performance regression.`,
+        severity: "MEDIUM",
+        notes: `${data.campaign} impressions dropped ${(100 - (data.impressions / prevData.impressions) * 100).toFixed(0)}% from ${prevData.impressions} to ${data.impressions} (${data.clicks} clicks, $${data.spend} spent) on ${data.date.toDateString()}. Investigate account or algorithm changes.`,
       });
     }
 
-    // Create issues
+    // Create or update issues with deduplication
     for (const issue of issues) {
-      await prisma.issue.create({
-        data: {
-          campaignDataId: data.id,
+      // Check if issue already exists for this campaign+date+type combination
+      const existingIssue = await prisma.issue.findFirst({
+        where: {
+          campaignData: {
+            campaign: data.campaign,
+            date: data.date,
+          },
           type: issue.type,
-          notes: issue.notes,
         },
       });
+
+      if (existingIssue) {
+        // Update existing issue
+        await prisma.issue.update({
+          where: { id: existingIssue.id },
+          data: {
+            notes: issue.notes,
+            severity: issue.severity,
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        // Create new issue
+        await prisma.issue.create({
+          data: {
+            campaignDataId: data.id,
+            type: issue.type,
+            severity: issue.severity,
+            notes: issue.notes,
+          },
+        });
+      }
     }
   }
 }
@@ -216,12 +259,18 @@ export async function getMetrics() {
 }
 
 export async function getIssues() {
-  return await prisma.issue.findMany({
+  const issues = await prisma.issue.findMany({
     include: {
       campaignData: true,
     },
     orderBy: { createdAt: "desc" },
   });
+
+  // Sort by severity priority: CRITICAL > HIGH > MEDIUM > LOW
+  const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  return issues.sort(
+    (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
+  );
 }
 
 export async function getChartData() {

@@ -4,12 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("STORAGE_DATABASE_URL")
 }
 
 model CampaignData {
   id          Int      @id @default(autoincrement())
-  date        DateTime @unique
+  campaign    String
+  date        DateTime
   impressions Int
   clicks      Int
   spend       Float
@@ -23,6 +24,7 @@ model Issue {
   campaignDataId Int
   campaignData   CampaignData @relation(fields: [campaignDataId], references: [id], onDelete: Cascade)
   type           IssueType
+  severity       IssueSeverity
   status         IssueStatus @default(OPEN)
   notes          String
   createdAt      DateTime    @default(now())
@@ -34,6 +36,13 @@ enum IssueType {
   HIGH_SPEND_NO_CONVERSIONS
   SUDDEN_DROP_IMPRESSIONS
   LOW_CTR
+}
+
+enum IssueSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
 }
 
 enum IssueStatus {
