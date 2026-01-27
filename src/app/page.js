@@ -165,7 +165,7 @@ export default function Dashboard() {
                   Total Impressions
                 </p>
                 <p className="text-4xl font-bold text-slate-900 mb-1">
-                  {metrics.total.impressions.toLocaleString()}
+                  {metrics?.impressions.toLocaleString()}
                 </p>
                 <p className="text-sm text-blue-600 font-medium">
                   Campaign visibility
@@ -202,9 +202,9 @@ export default function Dashboard() {
                   Click-Through Rate
                 </p>
                 <p className="text-4xl font-bold text-slate-900 mb-1">
-                  {isNaN(metrics.total.ctr)
+                  {isNaN(metrics.ctr)
                     ? "0.00%"
-                    : (metrics.total.ctr * 100).toFixed(2) + "%"}
+                    : (metrics.ctr * 100).toFixed(2) + "%"}
                 </p>
                 <p className="text-sm text-emerald-600 font-medium">
                   User engagement
@@ -235,7 +235,7 @@ export default function Dashboard() {
                   Total Conversions
                 </p>
                 <p className="text-4xl font-bold text-slate-900 mb-1">
-                  {metrics.total.conversions}
+                  {metrics.conversions}
                 </p>
                 <p className="text-sm text-purple-600 font-medium">
                   Business impact
