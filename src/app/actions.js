@@ -182,7 +182,16 @@ export async function getMetrics() {
     orderBy: { date: "asc" },
   });
 
-  if (allData.length === 0) return null;
+  if (allData.length === 0) {
+    return {
+      total: {
+        impressions: 0,
+        clicks: 0,
+        spend: 0,
+        conversions: 0,
+      },
+    };
+  }
 
   const sum = (key) => allData.reduce((s, d) => s + d[key], 0);
 
@@ -192,13 +201,15 @@ export async function getMetrics() {
   const conversions = sum("conversions");
 
   return {
-    impressions,
-    clicks,
-    spend,
-    conversions,
-    ctr: clicks / impressions,
-    conversionRate: conversions / clicks,
-    cpc: spend / clicks,
+    total: {
+      impressions,
+      clicks,
+      spend,
+      conversions,
+      ctr: clicks / impressions,
+      conversionRate: conversions / clicks,
+      cpc: spend / clicks,
+    },
   };
 }
 

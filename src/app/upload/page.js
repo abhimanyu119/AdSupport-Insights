@@ -1,7 +1,7 @@
 "use client";
 
 import { uploadCampaignData } from "../actions";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -9,6 +9,8 @@ export default function UploadPage() {
   const [message, setMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const inputRef = useRef(null);
   const router = useRouter();
 
   async function handleSubmit(event) {
@@ -30,8 +32,8 @@ export default function UploadPage() {
       setMessage("Data uploaded successfully!");
       // Redirect to dashboard after successful upload
       setTimeout(() => {
-        router.push("/");
-      }, 1500);
+        router.push("/dashboard");
+      }, 1200);
     } catch (error) {
       setMessage("Error: " + error.message);
       setIsProcessing(false);
@@ -44,40 +46,56 @@ export default function UploadPage() {
     setMessage("");
   }
 
+  function handleDragEnter(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setMessage("");
+      // Mirror the dropped file to the hidden input so file pickers and form libraries see it
+      try {
+        if (inputRef?.current) {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          inputRef.current.files = dt.files;
+        }
+      } catch (err) {
+        // Some environments may not allow setting input.files; ignore silently
+      }
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-linear-to-br from-indigo-50 via-white to-cyan-50 p-8">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-linear-to-br from-slate-900 via-slate-800 to-indigo-900 p-8 relative overflow-hidden animate-pulsating-gradient">
+      <div className="relative z-10 max-w-4xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-linear-to-r from-blue-600 to-purple-600 rounded-3xl mb-8 shadow-xl">
-            <svg
-              className="w-10 h-10 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-          </div>
-          <h1 className="text-5xl font-bold mb-6 bg-linear-to-r from-slate-800 via-blue-800 to-slate-800 bg-clip-text text-transparent">
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-white">
             Upload Campaign Data
           </h1>
-          <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Import your campaign performance data and let AI-powered diagnostics
-            identify issues automatically
-          </p>
-        </div>
-
-        {/* Back Button */}
-        <div className="mb-8">
           <Link
             href="/"
-            className="inline-flex items-center px-4 py-2 text-slate-600 hover:text-slate-800 transition-colors group"
+            className="inline-flex items-center px-4 py-2 text-slate-300 hover:text-white transition-colors group"
           >
             <svg
               className="w-5 h-5 mr-2 group-hover:-translate-x-1 transition-transform duration-200"
@@ -92,17 +110,17 @@ export default function UploadPage() {
                 d="M15 19l-7-7 7-7"
               />
             </svg>
-            Back to Dashboard
+            Back to Home
           </Link>
         </div>
 
         {/* Upload Form */}
-        <div className="bg-white rounded-2xl shadow-xl border border-slate-200/50 backdrop-blur-sm p-10">
+        <div className="bg-slate-800/50 rounded-2xl shadow-2xl border border-slate-700/50 backdrop-blur-sm p-8 mb-12">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="text-center">
-              <div className="w-24 h-24 bg-linear-to-r from-blue-100 to-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <div className="w-24 h-24 bg-linear-to-r from-indigo-500/30 to-purple-500/30 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-indigo-500/30">
                 <svg
-                  className="w-12 h-12 text-blue-600"
+                  className="w-12 h-12 text-indigo-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -115,28 +133,36 @@ export default function UploadPage() {
                   />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">
+              <h2 className="text-2xl font-bold text-white mb-2">
                 Choose Your CSV File
               </h2>
-              <p className="text-slate-600">
+              <p className="text-slate-400">
                 Select a CSV file containing your campaign performance data
               </p>
             </div>
 
             <div className="flex justify-center">
-              <label className="group cursor-pointer">
+              <label
+                className="group cursor-pointer w-full"
+                onDragEnter={handleDragEnter}
+              >
                 <div
-                  className={`border-2 border-dashed rounded-xl p-12 text-center transition-all duration-300 group-hover:scale-105 ${
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 mx-auto max-w-2xl ${
                     selectedFile
-                      ? "border-green-400 bg-green-50/50"
-                      : "border-slate-300 hover:border-blue-400 hover:bg-blue-50/50"
+                      ? "border-green-400 bg-green-500/10 shadow-inner"
+                      : dragActive
+                        ? "border-indigo-400 bg-indigo-500/10 shadow-md"
+                        : "border-slate-600 bg-slate-700/40"
                   }`}
                 >
                   <svg
                     className={`w-16 h-16 mx-auto mb-4 transition-colors duration-300 ${
                       selectedFile
-                        ? "text-green-500"
-                        : "text-slate-400 group-hover:text-blue-500"
+                        ? "text-green-400"
+                        : "text-slate-400 group-hover:text-indigo-400"
                     }`}
                     fill="none"
                     stroke="currentColor"
@@ -151,24 +177,25 @@ export default function UploadPage() {
                   </svg>
                   {selectedFile ? (
                     <div className="mb-4">
-                      <p className="text-lg font-medium text-green-700 mb-1">
+                      <p className="text-lg font-medium text-green-400 mb-1">
                         File Selected
                       </p>
-                      <p className="text-sm text-green-600 font-mono bg-green-100 px-3 py-1 rounded-lg inline-block">
+                      <p className="text-sm text-green-400 font-mono bg-green-500/20 px-3 py-1 rounded-lg inline-block border border-green-500/50">
                         {selectedFile.name}
                       </p>
                     </div>
                   ) : (
                     <>
-                      <p className="text-lg font-medium text-slate-700 mb-2">
+                      <p className="text-lg font-medium text-slate-200 mb-2">
                         Drop your CSV file here
                       </p>
-                      <p className="text-sm text-slate-500 mb-4">
+                      <p className="text-sm text-slate-400 mb-4">
                         or click to browse
                       </p>
                     </>
                   )}
                   <input
+                    ref={inputRef}
                     type="file"
                     name="csvFile"
                     accept=".csv"
@@ -176,12 +203,7 @@ export default function UploadPage() {
                     onChange={handleFileChange}
                     className="hidden"
                   />
-                  <button
-                    type="button"
-                    className="px-6 py-3 bg-linear-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl"
-                  >
-                    {selectedFile ? "Change File" : "Browse Files"}
-                  </button>
+                  {/* clicking the area will open file browser via label/input */}
                 </div>
               </label>
             </div>
@@ -192,8 +214,8 @@ export default function UploadPage() {
                 disabled={isProcessing || !selectedFile}
                 className={`px-8 py-4 font-semibold rounded-xl transition-all duration-300 shadow-lg transform hover:-translate-y-0.5 ${
                   isProcessing || !selectedFile
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-linear-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 hover:shadow-xl"
+                    ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                    : "bg-linear-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:shadow-2xl cursor-pointer"
                 }`}
               >
                 {isProcessing ? (
@@ -238,8 +260,8 @@ export default function UploadPage() {
               <div
                 className={`text-center p-4 rounded-lg ${
                   message.includes("Error")
-                    ? "bg-red-50 border border-red-200 text-red-700"
-                    : "bg-green-50 border border-green-200 text-green-700"
+                    ? "bg-red-500/20 border border-red-500/50 text-red-400"
+                    : "bg-green-500/20 border border-green-500/50 text-green-400"
                 }`}
               >
                 <p className="font-medium">{message}</p>
@@ -254,9 +276,9 @@ export default function UploadPage() {
         </div>
 
         {/* CSV Format Guide */}
-        <div className="mt-12 bg-linear-to-r from-slate-50 to-blue-50 rounded-2xl p-8 border border-slate-200/50">
+        <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm">
           <div className="flex items-center mb-6">
-            <div className="w-12 h-12 bg-linear-to-r from-blue-500 to-purple-500 rounded-xl flex items-center justify-center mr-4">
+            <div className="w-12 h-12 bg-linear-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center mr-4 shadow-lg">
               <svg
                 className="w-6 h-6 text-white"
                 fill="none"
@@ -271,40 +293,38 @@ export default function UploadPage() {
                 />
               </svg>
             </div>
-            <h3 className="text-xl font-bold text-slate-800">
-              CSV Format Guide
-            </h3>
+            <h3 className="text-xl font-bold text-white">CSV Format Guide</h3>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="flex flex-col gap-6">
             <div>
-              <h4 className="font-semibold text-slate-700 mb-3">
+              <h4 className="font-semibold text-slate-200 mb-3">
                 Required Columns
               </h4>
-              <div className="bg-white rounded-lg border border-slate-200 p-4 font-mono text-sm text-slate-700 shadow-sm">
-                date,campaign,spend,impressions,clicks,conversions
+              <div className="bg-slate-700/50 rounded-lg border border-slate-600/50 p-4 font-mono text-sm text-slate-300 shadow-sm w-full wrap-break-words">
+                <pre className="m-0">
+                  date,campaign,spend,impressions,clicks,conversions
+                </pre>
               </div>
-            </div>
 
-            <div>
-              <h4 className="font-semibold text-slate-700 mb-3">
-                Example Data
+              <h4 className="font-semibold text-slate-200 mt-6 mb-3">
+                Example Rows
               </h4>
-              <div className="bg-white rounded-lg border border-slate-200 p-4 text-sm text-slate-600 shadow-sm">
-                <div className="font-mono text-slate-700 mb-2">
+              <div className="bg-slate-700/50 rounded-lg border border-slate-600/50 p-4 text-sm text-slate-300 shadow-sm w-full wrap-break-words">
+                <pre className="m-0 font-mono text-slate-300">
                   2024-01-01,Brand Campaign,500.00,10000,200,15
-                </div>
-                <div className="font-mono text-slate-700">
+                </pre>
+                <pre className="m-0 font-mono text-slate-300 mt-2">
                   2024-01-02,Generic Search,750.50,8500,170,12
-                </div>
+                </pre>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="mt-6 p-4 bg-indigo-500/20 rounded-lg border border-indigo-500/50">
             <div className="flex items-start">
               <svg
-                className="w-5 h-5 text-blue-600 mt-0.5 mr-3 shrink-0"
+                className="w-5 h-5 text-indigo-400 mt-0.5 mr-3 shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -317,10 +337,10 @@ export default function UploadPage() {
                 />
               </svg>
               <div>
-                <h4 className="font-semibold text-blue-800 mb-1">
+                <h4 className="font-semibold text-indigo-300 mb-1">
                   Data Format Notes
                 </h4>
-                <ul className="text-sm text-blue-700 space-y-1">
+                <ul className="text-sm text-indigo-200 space-y-1">
                   <li>
                     • <strong>Date:</strong> YYYY-MM-DD format (e.g.,
                     2024-01-15)

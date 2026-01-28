@@ -24,3 +24,15 @@ body {
   color: #171717; /* Force dark text regardless of theme */
   font-family: Arial, Helvetica, sans-serif;
 }
+@keyframes pulsatingGradient {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.animate-pulsating-gradient {
+  animation: pulsatingGradient 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
