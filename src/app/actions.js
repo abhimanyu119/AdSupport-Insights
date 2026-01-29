@@ -1,6 +1,6 @@
 "use server";
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import Papa from "papaparse";
 
 const prisma = new PrismaClient();
@@ -29,12 +29,15 @@ export async function uploadCampaignData(formData) {
     date: new Date(row.date),
     impressions: Number(row.impressions),
     clicks: Number(row.clicks),
-    spend: Number(row.spend),
+    spend: new Prisma.Decimal(row.spend),
     conversions: Number(row.conversions),
   }));
 
   for (const row of data) {
-    if ([row.impressions, row.clicks, row.spend, row.conversions].some(isNaN)) {
+    if (Number.isNaN(row.impressions) ||
+        Number.isNaN(row.clicks) ||
+        Number.isNaN(Number(row.spend)) ||
+        Number.isNaN(row.conversions)) {
       throw new Error("Invalid numeric data in CSV");
     }
   }
@@ -82,18 +85,19 @@ async function runDiagnostics() {
     for (let i = 0; i < rows.length; i++) {
       const current = rows[i];
       const issues = [];
+      const spend = Number(current.spend);
 
       /* -------- ZERO IMPRESSIONS -------- */
       if (current.impressions === 0) {
         issues.push({
           type: "ZERO_IMPRESSIONS",
           severity: "CRITICAL",
-          notes: `${campaignName} spent $${current.spend} with zero impressions and ${current.clicks} clicks on ${current.date.toDateString()}, indicating a likely delivery failure.`,
+          notes: `${campaignName} spent $${spend} with zero impressions and ${current.clicks} clicks on ${current.date.toDateString()}, indicating a likely delivery failure.`,
         });
       }
 
       /* -------- HIGH SPEND NO CONVERSIONS -------- */
-      if (current.spend > 500 && current.conversions === 0) {
+      if (spend > 500 && current.conversions === 0) {
         let severity = "MEDIUM";
         if (current.impressions === 0) severity = "CRITICAL";
         else if (current.clicks >= 10) severity = "HIGH";
@@ -101,7 +105,7 @@ async function runDiagnostics() {
         issues.push({
           type: "HIGH_SPEND_NO_CONVERSIONS",
           severity,
-          notes: `${campaignName} spent $${current.spend} with zero conversions (${current.impressions} impressions, ${current.clicks} clicks) on ${current.date.toDateString()}, suggesting tracking or targeting issues.`,
+          notes: `${campaignName} spent $${spend} with zero conversions (${current.impressions} impressions, ${current.clicks} clicks) on ${current.date.toDateString()}, suggesting tracking or targeting issues.`,
         });
       }
 
@@ -116,7 +120,7 @@ async function runDiagnostics() {
             severity: "LOW",
             notes: `${campaignName} recorded ${(ctr * 100).toFixed(
               2,
-            )}% CTR (${current.clicks} clicks from ${current.impressions} impressions, $${current.spend} spent) on ${current.date.toDateString()}. Review creative or audience relevance.`,
+            )}% CTR (${current.clicks} clicks from ${current.impressions} impressions, $${spend} spent) on ${current.date.toDateString()}. Review creative or audience relevance.`,
           });
         }
       }
@@ -143,33 +147,53 @@ async function runDiagnostics() {
       }
 
       /* -------- DEDUPLICATED WRITE -------- */
-      for (const issue of issues) {
-        const existing = await prisma.issue.findFirst({
-          where: {
-            campaignDataId: current.id,
-            type: issue.type,
-          },
-        });
+      // for (const issue of issues) {
+      //   const existing = await prisma.issue.findFirst({
+      //     where: {
+      //       campaignDataId: current.id,
+      //       type: issue.type,
+      //     },
+      //   });
 
-        if (existing) {
-          await prisma.issue.update({
-            where: { id: existing.id },
-            data: {
-              severity: issue.severity,
-              notes: issue.notes,
-              updatedAt: new Date(),
-            },
-          });
-        } else {
-          await prisma.issue.create({
-            data: {
+      //   if (existing) {
+      //     await prisma.issue.update({
+      //       where: { id: existing.id },
+      //       data: {
+      //         severity: issue.severity,
+      //         notes: issue.notes,
+      //         updatedAt: new Date(),
+      //       },
+      //     });
+      //   } else {
+      //     await prisma.issue.create({
+      //       data: {
+      //         campaignDataId: current.id,
+      //         type: issue.type,
+      //         severity: issue.severity,
+      //         notes: issue.notes,
+      //       },
+      //     });
+      //   }
+      // }
+      for (const issue of issues) {
+        await prisma.issue.upsert({
+          where: {
+            campaignDataId_type: {
               campaignDataId: current.id,
               type: issue.type,
-              severity: issue.severity,
-              notes: issue.notes,
             },
-          });
-        }
+          },
+          update: {
+            severity: issue.severity,
+            notes: issue.notes,
+          },
+          create: {
+            campaignDataId: current.id,
+            type: issue.type,
+            severity: issue.severity,
+            notes: issue.notes,
+          },
+        });
       }
     }
   }
@@ -193,28 +217,59 @@ export async function getMetrics() {
     };
   }
 
-  const sum = (key) => allData.reduce((s, d) => s + d[key], 0);
+  // const sum = (key) => allData.reduce((s, d) => s + d[key], 0);
+const impressions = allData.reduce((s, d) => s + d.impressions, 0);
+const clicks = allData.reduce((s, d) => s + d.clicks, 0);
+const conversions = allData.reduce((s, d) => s + d.conversions, 0);
+const spend = allData.reduce((s, d) => s + Number(d.spend), 0);
 
-  const impressions = sum("impressions");
-  const clicks = sum("clicks");
-  const spend = sum("spend");
-  const conversions = sum("conversions");
+  // const impressions = sum("impressions");
+  // const clicks = sum("clicks");
+  // const spend = sum("spend");
+  // const conversions = sum("conversions");
 
+  // return {
+  //   total: {
+  //     impressions,
+  //     clicks,
+  //     spend,
+  //     conversions,
+  //     ctr: clicks / impressions,
+  //     conversionRate: conversions / clicks,
+  //     cpc: spend / clicks,
+  //   },
+  // };
   return {
     total: {
       impressions,
       clicks,
       spend,
       conversions,
-      ctr: clicks / impressions,
-      conversionRate: conversions / clicks,
-      cpc: spend / clicks,
+      ctr: impressions ? clicks / impressions : 0,
+      conversionRate: clicks ? conversions / clicks : 0,
+      cpc: clicks ? spend / clicks : 0,
     },
   };
+
 }
 
 /* -------------------- ISSUES -------------------- */
 
+// export async function getIssues() {
+//   const issues = await prisma.issue.findMany({
+//     include: { campaignData: true },
+//     orderBy: { createdAt: "desc" },
+//   });
+
+//   const priority = {
+//     CRITICAL: 0,
+//     HIGH: 1,
+//     MEDIUM: 2,
+//     LOW: 3,
+//   };
+
+//   return issues.sort((a, b) => priority[a.severity] - priority[b.severity]);
+// }
 export async function getIssues() {
   const issues = await prisma.issue.findMany({
     include: { campaignData: true },
@@ -228,7 +283,15 @@ export async function getIssues() {
     LOW: 3,
   };
 
-  return issues.sort((a, b) => priority[a.severity] - priority[b.severity]);
+  const serialized = issues.map((issue) => ({
+    ...issue,
+    campaignData: {
+      ...issue.campaignData,
+      spend: Number(issue.campaignData.spend),
+    },
+  }));
+
+  return serialized.sort((a, b) => priority[a.severity] - priority[b.severity]);
 }
 
 /* -------------------- CHART DATA -------------------- */
@@ -243,7 +306,7 @@ export async function getChartData() {
     campaign: d.campaign,
     impressions: d.impressions,
     clicks: d.clicks,
-    spend: d.spend,
+    spend: Number(d.spend),
     conversions: d.conversions,
   }));
 }

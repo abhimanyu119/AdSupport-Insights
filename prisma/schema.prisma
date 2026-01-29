@@ -13,10 +13,14 @@ model CampaignData {
   date        DateTime
   impressions Int
   clicks      Int
-  spend       Float
+  spend       Decimal @db.Decimal(12, 2)
   conversions Int
   issues      Issue[]
   createdAt   DateTime @default(now())
+
+  @@unique([campaign, date])
+  @@index([campaign])
+  @@index([date])
 }
 
 model Issue {
@@ -27,8 +31,11 @@ model Issue {
   severity       IssueSeverity
   status         IssueStatus @default(OPEN)
   notes          String
+  metadata       Json?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  @@unique([campaignDataId, type])
 }
 
 enum IssueType {
