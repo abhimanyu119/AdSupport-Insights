@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,7 +17,7 @@ import {
 import { AlertTriangle, BarChart3, Bug, Trash2, Activity } from "lucide-react";
 
 import { fetchRuns, fetchRunDetails } from "./actions";
-import { updateIssueStatus, deleteRun } from "../actions"
+import { updateIssueStatus, deleteRun } from "../actions";
 
 const EMPTY_METRICS = {
   impressions: 0,
@@ -41,7 +41,7 @@ const WARNING_BG = {
   LOW: "bg-slate-800 border-slate-700",
 };
 
-export default function Dashboard() {
+function DashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const runFromUrl = searchParams.get("run");
@@ -61,7 +61,7 @@ export default function Dashboard() {
     fetchRuns().then(setRuns);
   }, []);
 
-const activeRunId = runFromUrl ? Number(runFromUrl) : null;
+  const activeRunId = runFromUrl ? Number(runFromUrl) : null;
 
   useEffect(() => {
     if (!activeRunId) return;
@@ -132,22 +132,21 @@ const activeRunId = runFromUrl ? Number(runFromUrl) : null;
     setUpdatingIssueId(null);
   }
 
-async function deleteRunConfirmed() {
-  if (!activeRunId) return;
+  async function deleteRunConfirmed() {
+    if (!activeRunId) return;
 
-  setDeleting(true);
-  await deleteRun(activeRunId);
-  setDeleting(false);
-  setConfirmingDelete(false);
-  setMetrics(EMPTY_METRICS);
-  setScatterData([]);
-  setIssueStats([]);
-  setIssues([]);
-  setWarnings([]);
-  router.push("/dashboard");
-  fetchRuns().then(setRuns);
-}
-
+    setDeleting(true);
+    await deleteRun(activeRunId);
+    setDeleting(false);
+    setConfirmingDelete(false);
+    setMetrics(EMPTY_METRICS);
+    setScatterData([]);
+    setIssueStats([]);
+    setIssues([]);
+    setWarnings([]);
+    router.push("/dashboard");
+    fetchRuns().then(setRuns);
+  }
 
   return (
     <div className="min-h-screen flex bg-slate-950 text-slate-200">
@@ -180,44 +179,43 @@ async function deleteRunConfirmed() {
       {/* MAIN */}
       <main className="flex-1 p-4 space-y-4">
         {/* METRICS */}
-        
-          <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <div className="bg-slate-800 p-4 rounded border border-slate-700">
-              <div className="text-xs text-slate-400">Impressions</div>
-              <div className="text-lg font-semibold">
-                {metrics.impressions.toLocaleString()}
-              </div>
-            </div>
 
-            <div className="bg-slate-800 p-4 rounded border border-slate-700">
-              <div className="text-xs text-slate-400">Clicks</div>
-              <div className="text-lg font-semibold">
-                {metrics.clicks.toLocaleString()}
-              </div>
+        <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="bg-slate-800 p-4 rounded border border-slate-700">
+            <div className="text-xs text-slate-400">Impressions</div>
+            <div className="text-lg font-semibold">
+              {metrics.impressions.toLocaleString()}
             </div>
+          </div>
 
-            <div className="bg-slate-800 p-4 rounded border border-slate-700">
-              <div className="text-xs text-slate-400">Spend</div>
-              <div className="text-lg font-semibold">
-                ${metrics.spend.toLocaleString()}
-              </div>
+          <div className="bg-slate-800 p-4 rounded border border-slate-700">
+            <div className="text-xs text-slate-400">Clicks</div>
+            <div className="text-lg font-semibold">
+              {metrics.clicks.toLocaleString()}
             </div>
+          </div>
 
-            <div className="bg-slate-800 p-4 rounded border border-slate-700">
-              <div className="text-xs text-slate-400">Conversions</div>
-              <div className="text-lg font-semibold">
-                {metrics.conversions.toLocaleString()}
-              </div>
+          <div className="bg-slate-800 p-4 rounded border border-slate-700">
+            <div className="text-xs text-slate-400">Spend</div>
+            <div className="text-lg font-semibold">
+              ${metrics.spend.toLocaleString()}
             </div>
+          </div>
 
-            <div className="bg-slate-800 p-4 rounded border border-slate-700">
-              <div className="text-xs text-slate-400">CTR</div>
-              <div className="text-lg font-semibold">
-                {(metrics.ctr * 100).toFixed(2)}%
-              </div>
+          <div className="bg-slate-800 p-4 rounded border border-slate-700">
+            <div className="text-xs text-slate-400">Conversions</div>
+            <div className="text-lg font-semibold">
+              {metrics.conversions.toLocaleString()}
             </div>
-          </section>
-        
+          </div>
+
+          <div className="bg-slate-800 p-4 rounded border border-slate-700">
+            <div className="text-xs text-slate-400">CTR</div>
+            <div className="text-lg font-semibold">
+              {(metrics.ctr * 100).toFixed(2)}%
+            </div>
+          </div>
+        </section>
 
         {/* WARNINGS */}
         {warnings.map((w, i) => (
@@ -310,40 +308,6 @@ async function deleteRunConfirmed() {
         </section>
 
         {/* ISSUES */}
-        {/* <section className="bg-slate-800 p-6 rounded">
-          <h3 className="flex items-center gap-2 text-sm mb-4">
-            <Bug size={16} /> Issues
-          </h3>
-
-          <div className="space-y-3">
-            {issues.map((i) => (
-              <div
-                key={i.id}
-                className="flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700"
-              >
-                <div>
-                  <div className="text-sm font-medium">{i.type}</div>
-                  <div className="text-xs text-slate-400">{i.message}</div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {updatingIssueId === i.id && (
-                    <div className="animate-spin h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full" />
-                  )}
-                  <select
-                    value={i.status}
-                    onChange={(e) => changeIssueStatus(i.id, e.target.value)}
-                    className="bg-slate-800 border border-slate-600 text-xs rounded px-2 py-1"
-                  >
-                    <option value="OPEN">Open</option>
-                    <option value="INVESTIGATING">Investigating</option>
-                    <option value="RESOLVED">Resolved</option>
-                  </select>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section> */}
         <section className="bg-slate-800 p-6 rounded">
           <h3 className="flex items-center gap-2 text-sm mb-4">
             <Bug size={16} /> Issues
@@ -452,5 +416,19 @@ async function deleteRunConfirmed() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex bg-slate-950 text-slate-200 items-center justify-center">
+          Loading...
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }
