@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-// import Papa from "papaparse";
 import { useRouter } from "next/navigation";
 
 export default function UploadPage() {
@@ -35,24 +34,13 @@ export default function UploadPage() {
 
     try {
       const text = await selectedFile.text();
-
-      // const parsed = Papa.parse(text, {
-      //   header: true,
-      //   skipEmptyLines: true,
-      // });
-
-      // if (parsed.errors.length) {
-      //   throw new Error(parsed.errors.map((e) => e.message).join(", "));
-      // }
-
       const res = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           csvText: text,
           source: "CSV",
-          filename: `CSV Upload - ${selectedFile.name}`,
-          // raw: parsed.data,
+          filename: `CSV Upload - ${selectedFile.name} - ${new Date().toDateString()}`,
         }),
       });
 
@@ -138,7 +126,7 @@ export default function UploadPage() {
           <button
             type="submit"
             disabled={!selectedFile || loading}
-            className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-md py-2 text-sm font-semibold"
+            className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-md py-2 text-sm font-semibold cursor-pointer"
           >
             {loading ? "Processing…" : "Upload & Analyze"}
           </button>
