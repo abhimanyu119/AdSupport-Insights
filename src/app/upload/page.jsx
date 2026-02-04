@@ -48,7 +48,6 @@ export default function UploadPage() {
         const err = await res.json();
         throw new Error(err.error || "Upload failed");
       }
-
       const { runId } = await res.json();
       router.push(`/dashboard?run=${runId}`);
     } catch (err) {

@@ -17,6 +17,7 @@ model AnalyticsRun {
   createdAt   DateTime  @default(now())
 
   campaignData CampaignData[]
+  issueGroups IssueGroup[]
 }
 
 model CampaignData {
@@ -31,28 +32,47 @@ model CampaignData {
   spend         Decimal
   conversions   Int
 
-  issues        Issue[]
+  issueOccurrences  IssueOccurrence[]
   createdAt     DateTime @default(now())
 
   @@index([runId])
   @@index([campaign, date])
 }
 
-model Issue {
-  id             Int       @id @default(autoincrement())
+model IssueGroup {
+  id         Int       @id @default(autoincrement())
+  runId      Int
+  run        AnalyticsRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  campaign   String
+  type       IssueType
+  severity   IssueSeverity
+  status     IssueStatus @default(OPEN)
+
+  occurrences IssueOccurrence[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([runId, campaign, type])
+}
+
+model IssueOccurrence {
+  id            Int       @id @default(autoincrement())
+  issueGroupId  Int
+  issueGroup    IssueGroup @relation(fields: [issueGroupId], references: [id], onDelete: Cascade)
+
   campaignDataId Int
   campaignData   CampaignData @relation(fields: [campaignDataId], references: [id], onDelete: Cascade)
 
-  type           IssueType
-  severity       IssueSeverity
-  status         IssueStatus @default(OPEN)
-  notes          String
+  notes         String
+  date          DateTime
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt     DateTime @default(now())
 
-  @@unique([campaignDataId, type])
+  @@unique([issueGroupId, campaignDataId])
 }
+
 
 enum RunSource {
   CSV

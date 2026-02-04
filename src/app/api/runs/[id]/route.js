@@ -5,13 +5,28 @@ export async function GET(req, context) {
   const params = await context.params;
   const runId = Number(params.id);
 
+  // const run = await prisma.analyticsRun.findUnique({
+  //   where: { id: runId },
+  //   include: {
+  //     campaignData: {include: { issues: true } },
+  //   },
+  // });
   const run = await prisma.analyticsRun.findUnique({
     where: { id: runId },
     include: {
-      campaignData: {include: { issues: true } },
+      campaignData: true,
+      issueGroups: {
+        include: {
+          occurrences: {
+            include: {
+              campaignData: true,
+            },
+          },
+        },
+      },
     },
   });
-  
+
   if (!Number.isInteger(runId)) {
     return NextResponse.json({ error: "Invalid run id" }, { status: 400 });
   }

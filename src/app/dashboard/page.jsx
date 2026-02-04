@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -14,10 +14,22 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { AlertTriangle, BarChart3, Bug, Trash2, Activity } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  Bug,
+  Trash2,
+  Activity,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 
 import { fetchRuns, fetchRunDetails } from "./actions";
-import { updateIssueStatus, deleteRun } from "../actions";
+import { deleteRun, updateIssueStatus } from "../actions";
+import { set } from "date-fns";
+
+/* ---------------- CONSTANTS ---------------- */
 
 const EMPTY_METRICS = {
   impressions: 0,
@@ -27,11 +39,20 @@ const EMPTY_METRICS = {
   ctr: 0,
 };
 
+const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+
 const SEVERITY_COLOR = {
   CRITICAL: "#ef4444",
   HIGH: "#f59e0b",
   MEDIUM: "#facc15",
   LOW: "#94a3b8",
+};
+
+const SEVERITY_BADGE = {
+  CRITICAL: "bg-red-500/20 text-red-400",
+  HIGH: "bg-orange-500/20 text-orange-400",
+  MEDIUM: "bg-yellow-500/20 text-yellow-400",
+  LOW: "bg-slate-600/20 text-slate-300",
 };
 
 const WARNING_BG = {
@@ -41,27 +62,42 @@ const WARNING_BG = {
   LOW: "bg-slate-800 border-slate-700",
 };
 
+/* ---------------- HELPERS ---------------- */
+
+function severityRank(sev) {
+  return SEVERITY_ORDER.indexOf(sev);
+}
+
+/* ---------------- DASHBOARD ---------------- */
+
 function DashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const runFromUrl = searchParams.get("run");
+  const activeRunId = Number(searchParams.get("run")) || null;
 
   const [runs, setRuns] = useState([]);
-
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
   const [scatterData, setScatterData] = useState([]);
   const [issueStats, setIssueStats] = useState([]);
-  const [issues, setIssues] = useState([]);
+  const [issueGroups, setIssueGroups] = useState([]);
   const [warnings, setWarnings] = useState([]);
-  const [updatingIssueId, setUpdatingIssueId] = useState(null);
+
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [updatingGroupId, setUpdatingGroupId] = useState(null);
+
+  const [sortDesc, setSortDesc] = useState(true);
+  const [severityFilter, setSeverityFilter] = useState("ALL");
+
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  /* ---------------- LOAD RUN LIST ---------------- */
 
   useEffect(() => {
     fetchRuns().then(setRuns);
   }, []);
 
-  const activeRunId = runFromUrl ? Number(runFromUrl) : null;
+  /* ---------------- LOAD RUN DETAILS ---------------- */
 
   useEffect(() => {
     if (!activeRunId) return;
@@ -94,59 +130,99 @@ function DashboardContent() {
       /* WARNINGS */
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
 
+      const severityByCampaignDataId = {};
+
+      (data.issueGroups || []).forEach((group) => {
+        group.occurrences.forEach((occ) => {
+          const existing = severityByCampaignDataId[occ.campaignDataId];
+
+          if (
+            !existing ||
+            severityRank(group.severity) < severityRank(existing)
+          ) {
+            severityByCampaignDataId[occ.campaignDataId] = group.severity;
+          }
+        });
+      });
+
       /* SCATTER */
       setScatterData(
-        rows.map((r) => {
-          const issue = r.issues?.[0];
-          return {
-            spend: Number(r.spend),
-            outcome: r.conversions > 0 ? r.conversions : r.clicks,
-            impressions: r.impressions,
-            severity: issue?.severity || "LOW",
-          };
-        }),
+        rows.map((r) => ({
+          spend: Number(r.spend),
+          outcome: r.conversions > 0 ? r.conversions : r.clicks,
+          impressions: r.impressions,
+          severity: severityByCampaignDataId[r.id] || "LOW",
+        })),
       );
 
-      /* ISSUES */
-      const flatIssues = rows.flatMap((r) => r.issues || []);
-      setIssues(flatIssues);
+      /* ISSUE GROUPS */
+      setIssueGroups(data.issueGroups || []);
 
+      /* ISSUE DISTRIBUTION (by occurrences) */
       const byType = {};
-      flatIssues.forEach((i) => {
-        byType[i.type] = (byType[i.type] || 0) + 1;
+      (data.issueGroups || []).forEach((g) => {
+        byType[g.type] = (byType[g.type] || 0) + g.occurrences.length;
       });
 
       setIssueStats(
-        Object.entries(byType).map(([type, count]) => ({ type, count })),
+        Object.entries(byType).map(([type, count]) => ({
+          type,
+          count,
+        })),
       );
     }
 
     load();
   }, [activeRunId]);
 
-  async function changeIssueStatus(issueId, status) {
-    setUpdatingIssueId(issueId);
-    await updateIssueStatus(issueId, status);
-    const refreshed = await fetchRunDetails(activeRunId);
-    setIssues(refreshed.campaignData.flatMap((r) => r.issues || []));
-    setUpdatingIssueId(null);
-  }
+  /* ---------------- SORT + FILTER ---------------- */
+
+  const visibleIssueGroups = useMemo(() => {
+    let list = [...issueGroups];
+
+    if (severityFilter !== "ALL") {
+      list = list.filter((g) => g.severity === severityFilter);
+    }
+
+    list.sort((a, b) => {
+      const diff = severityRank(a.severity) - severityRank(b.severity);
+      return sortDesc ? diff : -diff;
+    });
+
+    return list;
+  }, [issueGroups, sortDesc, severityFilter]);
+
+  /* ---------------- ACTIONS ---------------- */
 
   async function deleteRunConfirmed() {
-    if (!activeRunId) return;
-
     setDeleting(true);
     await deleteRun(activeRunId);
     setDeleting(false);
     setConfirmingDelete(false);
     setMetrics(EMPTY_METRICS);
     setScatterData([]);
+    setIssueGroups([]);
     setIssueStats([]);
-    setIssues([]);
     setWarnings([]);
     router.push("/dashboard");
     fetchRuns().then(setRuns);
   }
+
+  async function changeGroupStatus(groupId, status) {
+    setUpdatingGroupId(groupId);
+    await updateIssueStatus(groupId, status);
+    const refreshed = await fetchRunDetails(activeRunId);
+    setIssueGroups(refreshed.issueGroups || []);
+    setUpdatingGroupId(null);
+  }
+
+  function toggleGroup(id) {
+    const next = new Set(expandedGroups);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setExpandedGroups(next);
+  }
+
+  /* ---------------- RENDER ---------------- */
 
   return (
     <div className="min-h-screen flex bg-slate-950 text-slate-200">
@@ -179,42 +255,18 @@ function DashboardContent() {
       {/* MAIN */}
       <main className="flex-1 p-4 space-y-4">
         {/* METRICS */}
-
         <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-slate-800 p-4 rounded border border-slate-700">
-            <div className="text-xs text-slate-400">Impressions</div>
-            <div className="text-lg font-semibold">
-              {metrics.impressions.toLocaleString()}
+          {Object.entries(metrics).map(([k, v]) => (
+            <div
+              key={k}
+              className="bg-slate-800 p-4 rounded border border-slate-700"
+            >
+              <div className="text-xs text-slate-400">{k.toUpperCase()}</div>
+              <div className="text-lg font-semibold">
+                {k === "ctr" ? `${(v * 100).toFixed(2)}%` : v.toLocaleString()}
+              </div>
             </div>
-          </div>
-
-          <div className="bg-slate-800 p-4 rounded border border-slate-700">
-            <div className="text-xs text-slate-400">Clicks</div>
-            <div className="text-lg font-semibold">
-              {metrics.clicks.toLocaleString()}
-            </div>
-          </div>
-
-          <div className="bg-slate-800 p-4 rounded border border-slate-700">
-            <div className="text-xs text-slate-400">Spend</div>
-            <div className="text-lg font-semibold">
-              ${metrics.spend.toLocaleString()}
-            </div>
-          </div>
-
-          <div className="bg-slate-800 p-4 rounded border border-slate-700">
-            <div className="text-xs text-slate-400">Conversions</div>
-            <div className="text-lg font-semibold">
-              {metrics.conversions.toLocaleString()}
-            </div>
-          </div>
-
-          <div className="bg-slate-800 p-4 rounded border border-slate-700">
-            <div className="text-xs text-slate-400">CTR</div>
-            <div className="text-lg font-semibold">
-              {(metrics.ctr * 100).toFixed(2)}%
-            </div>
-          </div>
+          ))}
         </section>
 
         {/* WARNINGS */}
@@ -243,7 +295,7 @@ function DashboardContent() {
                 domain={["auto", "auto"]}
                 name="Spend"
                 tickCount={20}
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 12 }}
                 label={{
                   value: "Spend ($)",
                   position: "insideBottom",
@@ -264,13 +316,12 @@ function DashboardContent() {
               />
               <Tooltip
                 contentStyle={{
-                  background: "#020617",
-                  border: "1px solid #334155",
+                  background: "#334155",
                   fontSize: 12,
                 }}
                 itemStyle={{ color: "#e5e7eb" }}
               />
-              {Object.keys(SEVERITY_COLOR).map((sev) => (
+              {SEVERITY_ORDER.map((sev) => (
                 <Scatter
                   key={sev}
                   data={scatterData.filter((d) => d.severity === sev)}
@@ -287,20 +338,17 @@ function DashboardContent() {
             <BarChart3 size={16} /> Issue Distribution
           </h3>
 
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={issueStats}>
-              <XAxis dataKey="type" tick={{ fontSize: 11 }} interval={0} />
-              <YAxis
-                type="number"
-                domain={["auto", "auto"]}
-                tick={{ fontSize: 11 }}
-              />
+              <XAxis dataKey="type" interval={0} tick={{ fontSize: 12 }} />
+              <YAxis type="number" domain={["auto", "auto"]} />
               <Tooltip
                 contentStyle={{
-                  background: "#020617",
+                  background: "#334155",
                   border: "1px solid #334155",
                   fontSize: 12,
                 }}
+                itemStyle={{ color: "#e5e7eb" }}
               />
               <Bar dataKey="count" fill="#818cf8" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -309,73 +357,94 @@ function DashboardContent() {
 
         {/* ISSUES */}
         <section className="bg-slate-800 p-6 rounded">
-          <h3 className="flex items-center gap-2 text-sm mb-4">
-            <Bug size={16} /> Issues
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="flex items-center gap-2 text-sm">
+              <Bug size={16} /> Issues
+            </h3>
 
-          {issues.length === 0 ? (
-            <div className="text-sm text-slate-400">No issues detected</div>
-          ) : (
-            <div className="space-y-3">
-              {issues.map((i) => (
-                <div
-                  key={i.id}
-                  className="bg-slate-900 p-3 rounded border border-slate-700 space-y-2"
-                >
-                  {/* HEADER */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                          i.severity === "CRITICAL"
-                            ? "bg-red-500/20 text-red-400"
-                            : i.severity === "HIGH"
-                              ? "bg-orange-500/20 text-orange-400"
-                              : i.severity === "MEDIUM"
-                                ? "bg-yellow-500/20 text-yellow-400"
-                                : "bg-slate-600/20 text-slate-300"
-                        }`}
-                      >
-                        {i.severity}
-                      </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSortDesc(!sortDesc)}
+                className="flex items-center gap-1 text-xs bg-slate-700 px-2 py-1 rounded"
+              >
+                <ArrowUpDown size={12} />
+                Severity
+              </button>
 
-                      <span className="text-sm font-medium">
-                        {i.type.replace(/_/g, " ")}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {updatingIssueId === i.id && (
-                        <div className="animate-spin h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full" />
-                      )}
-
-                      <select
-                        value={i.status}
-                        onChange={(e) =>
-                          changeIssueStatus(i.id, e.target.value)
-                        }
-                        className="bg-slate-800 border border-slate-600 text-xs rounded px-2 py-1"
-                      >
-                        <option value="OPEN">Open</option>
-                        <option value="INVESTIGATING">Investigating</option>
-                        <option value="RESOLVED">Resolved</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* DETAILS */}
-                  <div className="text-xs text-slate-400 leading-relaxed">
-                    {i.notes}
-                  </div>
-
-                  {/* META */}
-                  <div className="text-[11px] text-slate-500">
-                    {new Date(i.createdAt).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
+              <select
+                value={severityFilter}
+                onChange={(e) => setSeverityFilter(e.target.value)}
+                className="bg-slate-700 text-xs px-2 py-1 rounded"
+              >
+                <option value="ALL">All</option>
+                {SEVERITY_ORDER.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
+          </div>
+
+          {visibleIssueGroups.map((g) => (
+            <div
+              key={g.id}
+              className="bg-slate-900 p-4 rounded border border-slate-700 mb-3"
+            >
+              <div className="flex items-center justify-between">
+                <div
+                  onClick={() => toggleGroup(g.id)}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  {expandedGroups.has(g.id) ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${SEVERITY_BADGE[g.severity]}`}
+                  >
+                    {g.severity}
+                  </span>
+
+                  <span className="text-sm font-medium">
+                    {g.type.replace(/_/g, " ")} · {g.campaign}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {updatingGroupId === g.id && (
+                    <div className="animate-spin h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full" />
+                  )}
+
+                  <select
+                    value={g.status}
+                    onChange={(e) => changeGroupStatus(g.id, e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-xs rounded px-2 py-1"
+                  >
+                    <option value="OPEN">Open</option>
+                    <option value="INVESTIGATING">Investigating</option>
+                    <option value="RESOLVED">Resolved</option>
+                  </select>
+                </div>
+              </div>
+
+              {expandedGroups.has(g.id) && (
+                <div className="mt-3 space-y-2 text-xs text-slate-400">
+                  {g.occurrences.map((o) => (
+                    <div
+                      key={o.id}
+                      className="flex justify-between border-b border-slate-800 pb-1"
+                    >
+                      <span>{new Date(o.date).toDateString()}</span>
+                      <span>{o.notes}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </section>
 
         {/* DELETE */}
@@ -421,13 +490,7 @@ function DashboardContent() {
 
 export default function Dashboard() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex bg-slate-950 text-slate-200 items-center justify-center">
-          Loading...
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="p-10">Loading…</div>}>
       <DashboardContent />
     </Suspense>
   );

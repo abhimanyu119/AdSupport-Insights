@@ -6,7 +6,7 @@ import prisma from "@/lib/prisma";
  */
 const PLATFORM_FIELD_MAPS = {
   google: {
-    campaign: ["campaign", "campaign_name", "campaignname"],
+    campaign: ["campaign", "campaign_name", "campaignname", "name", "campaign name"],
     date: ["day", "date", "date_served"],
     impressions: ["impressions", "impr"],
     clicks: ["clicks"],
@@ -160,17 +160,128 @@ export function normalizeCsvRows(rows, platform = "google", headers = null) {
   });
 }
 
-/**
- * Normalize API objects with platform-aware field mapping
- * @param {Object[]} objs - Array of API response objects
- * @param {string} platform - Platform identifier (google, meta, amazon, etc.)
- */
+// export function normalizeApiObjects(objs, platform = "google") {
+//   if (!objs || objs.length === 0) return [];
+
+//   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
+
+//   return objs.map((obj) => {
+//     const normalized = {
+//       campaign: "UNKNOWN",
+//       date: null,
+//       impressions: 0,
+//       clicks: 0,
+//       spend: new Decimal(0),
+//       conversions: 0,
+//     };
+
+//     // Find each standard field from possible API response keys
+//     for (const [standardField, variants] of Object.entries(fieldMap)) {
+//       for (const variant of variants) {
+//         if (obj[variant] !== undefined) {
+//           switch (standardField) {
+//             case "campaign":
+//               normalized.campaign = obj[variant] || "UNKNOWN";
+//               break;
+//             case "date":
+//               normalized.date = safeDate(obj[variant]);
+//               break;
+//             case "impressions":
+//               normalized.impressions = safeInt(obj[variant]);
+//               break;
+//             case "clicks":
+//               normalized.clicks = safeInt(obj[variant]);
+//               break;
+//             case "spend":
+//               normalized.spend = safeDecimal(obj[variant]);
+//               break;
+//             case "conversions":
+//               normalized.conversions = safeInt(obj[variant]);
+//               break;
+//           }
+//           break; // Found the field, stop looking for variants
+//         }
+//       }
+//     }
+
+//     return normalized;
+//   });
+// }
+// export function normalizeApiObjects(objs, platform = "google") {
+//   if (!objs || objs.length === 0) return [];
+
+//   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
+
+//   return objs.map((obj) => {
+//     // Normalize API object keys
+//     const normalizedObj = {};
+//     for (const [key, value] of Object.entries(obj)) {
+//       const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, "");
+//       normalizedObj[normalizedKey] = value;
+//     }
+
+//     // Default normalized record
+//     const normalized = {
+//       campaign: "UNKNOWN",
+//       date: null,
+//       impressions: 0,
+//       clicks: 0,
+//       spend: safeDecimal(0),
+//       conversions: 0,
+//     };
+
+//     // Resolve each standard field
+//     for (const [standardField, variants] of Object.entries(fieldMap)) {
+//       for (const variant of variants) {
+//         const normalizedVariant = variant.toLowerCase().replace(/[_\s-]/g, "");
+
+//         const value = normalizedObj[normalizedVariant];
+
+//         // IMPORTANT: ignore null/empty matches
+//         if (value === undefined || value === null || value === "") continue;
+
+//         switch (standardField) {
+//           case "campaign":
+//             normalized.campaign = String(value).trim();
+//             break;
+//           case "date":
+//             normalized.date = safeDate(value);
+//             break;
+//           case "impressions":
+//             normalized.impressions = safeInt(value);
+//             break;
+//           case "clicks":
+//             normalized.clicks = safeInt(value);
+//             break;
+//           case "spend":
+//             normalized.spend = safeDecimal(value);
+//             break;
+//           case "conversions":
+//             normalized.conversions = safeInt(value);
+//             break;
+//         }
+
+//         break; // stop after first valid match
+//       }
+//     }
+
+//     return normalized;
+//   });
+// }
+
 export function normalizeApiObjects(objs, platform = "google") {
   if (!objs || objs.length === 0) return [];
 
   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
 
   return objs.map((obj) => {
+    // Normalize API keys like CSV headers
+    const normalizedObj = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, "");
+      normalizedObj[normalizedKey] = value;
+    }
+
     const normalized = {
       campaign: "UNKNOWN",
       date: null,
@@ -180,65 +291,123 @@ export function normalizeApiObjects(objs, platform = "google") {
       conversions: 0,
     };
 
-    // Find each standard field from possible API response keys
+    // Match using normalized variants
     for (const [standardField, variants] of Object.entries(fieldMap)) {
       for (const variant of variants) {
-        if (obj[variant] !== undefined) {
+        const normalizedVariant = variant.toLowerCase().replace(/[_\s-]/g, "");
+
+        if (normalizedObj[normalizedVariant] !== undefined) {
+          const value = normalizedObj[normalizedVariant];
+
           switch (standardField) {
             case "campaign":
-              normalized.campaign = obj[variant] || "UNKNOWN";
+              normalized.campaign = String(value).trim() || "UNKNOWN";
               break;
             case "date":
-              normalized.date = safeDate(obj[variant]);
+              normalized.date = safeDate(value);
               break;
             case "impressions":
-              normalized.impressions = safeInt(obj[variant]);
+              normalized.impressions = safeInt(value);
               break;
             case "clicks":
-              normalized.clicks = safeInt(obj[variant]);
+              normalized.clicks = safeInt(value);
               break;
             case "spend":
-              normalized.spend = safeDecimal(obj[variant]);
+              normalized.spend = safeDecimal(value);
               break;
             case "conversions":
-              normalized.conversions = safeInt(obj[variant]);
+              normalized.conversions = safeInt(value);
               break;
           }
-          break; // Found the field, stop looking for variants
+
+          break; // stop after first match
         }
       }
+    }
+    if (
+      normalized.campaign === "UNKNOWN" ||
+      normalized.campaign === null ||
+      normalized.campaign === ""
+    ) {
+      
+      normalized.campaign =
+        obj.campaign ??
+        obj.campaign_name ??
+        obj.campaignName ??
+        normalizedObj.campaign ??
+        "UNKNOWN";
     }
 
     return normalized;
   });
 }
 
-export function runPreflightDiagnostics(rows) {
+export function buildDiscardWarnings(rows) {
+  const discarded = [];
+  const valid = [];
+
+  for (const row of rows) {
+    // Empty row → silently skip
+    if (
+      !row.campaign &&
+      !row.date &&
+      !row.impressions &&
+      !row.clicks &&
+      !row.spend &&
+      !row.conversions
+    ) {
+      continue;
+    }
+
+    const reasons = [];
+
+    if (!row.campaign || row.campaign === "UNKNOWN")
+      reasons.push("missing campaign");
+
+    if (!row.date || isNaN(new Date(row.date).getTime()))
+      reasons.push("invalid date");
+
+    if (row.impressions < 0) reasons.push("negative impressions");
+    if (row.clicks < 0) reasons.push("negative clicks");
+    if (row.spend < 0) reasons.push("negative spend");
+    if (row.conversions < 0) reasons.push("negative conversions");
+
+    if (row.clicks > row.impressions) reasons.push("clicks > impressions");
+
+    if (row.conversions > row.clicks) reasons.push("conversions > clicks");
+
+    if (reasons.length > 0) {
+      discarded.push({ row, reasons });
+    } else {
+      valid.push(row);
+    }
+  }
+
+  const total = valid.length + discarded.length;
+  const discardedPct =
+    total === 0 ? 0 : Math.round((discarded.length / total) * 100);
+
   const warnings = [];
 
-  const zeroImpressions = rows.filter((r) => r.impressions === 0).length;
-  const highSpendNoConv = rows.filter(
-    (r) => r.spend > 0 && r.conversions === 0,
-  ).length;
-
-  if (zeroImpressions > 0) {
+  if (discarded.length > 0) {
     warnings.push({
-      level: "MEDIUM",
-      message: `${zeroImpressions} rows have zero impressions`,
+      level: discardedPct > 50 ? "CRITICAL" : "MEDIUM",
+      message: `${discarded.length} / ${total} rows (${discardedPct}%) were discarded due to invalid data`,
+      breakdown: discarded.reduce((acc, d) => {
+        d.reasons.forEach((r) => {
+          acc[r] = (acc[r] || 0) + 1;
+        });
+        return acc;
+      }, {}),
     });
   }
 
-  if (highSpendNoConv > 0) {
-    warnings.push({
-      level: "HIGH",
-      message: `${highSpendNoConv} rows have spend but no conversions`,
-    });
-  }
-
-  return warnings;
+  return {
+    validRows: valid,
+    warnings,
+    discardedPct,
+  };
 }
-
-const BASELINE_DAYS = 3;
 
 export async function runAnomalyDiagnosticsForRun(runId) {
   const allData = await prisma.campaignData.findMany({
@@ -259,14 +428,14 @@ export async function runAnomalyDiagnosticsForRun(runId) {
 
     for (let i = 0; i < rows.length; i++) {
       const current = rows[i];
-      const issues = [];
       const spend = Number(current.spend);
+      const issues = [];
 
       if (current.impressions === 0) {
         issues.push({
           type: "ZERO_IMPRESSIONS",
           severity: "CRITICAL",
-          notes: `${campaignName} spent $${spend} with zero impressions on ${current.date.toDateString()}.`,
+          notes: `Spent $${spend} with zero impressions`,
         });
       }
 
@@ -278,7 +447,7 @@ export async function runAnomalyDiagnosticsForRun(runId) {
         issues.push({
           type: "HIGH_SPEND_NO_CONVERSIONS",
           severity,
-          notes: `${campaignName} spent $${spend} with zero conversions on ${current.date.toDateString()}.`,
+          notes: `Spent $${spend} with zero conversions`,
         });
       }
 
@@ -288,42 +457,60 @@ export async function runAnomalyDiagnosticsForRun(runId) {
           issues.push({
             type: "LOW_CTR",
             severity: "LOW",
-            notes: `${campaignName} CTR ${(ctr * 100).toFixed(2)}% on ${current.date.toDateString()}.`,
+            notes: `CTR ${(ctr * 100).toFixed(2)}%`,
           });
         }
       }
 
-      if (i >= BASELINE_DAYS) {
+      if (i >= 3) {
         const baseline =
-          rows
-            .slice(i - BASELINE_DAYS, i)
-            .reduce((sum, r) => sum + r.impressions, 0) / BASELINE_DAYS;
+          rows.slice(i - 3, i).reduce((sum, r) => sum + r.impressions, 0) / 3;
 
         if (baseline > 500 && current.impressions < baseline * 0.3) {
           issues.push({
             type: "SUDDEN_DROP_IMPRESSIONS",
             severity: "MEDIUM",
-            notes: `${campaignName} impressions dropped sharply on ${current.date.toDateString()}.`,
+            notes: "Sudden drop vs baseline",
           });
         }
       }
 
       for (const issue of issues) {
-        await prisma.issue.upsert({
+        // 1️⃣ Upsert IssueGroup
+        const issueGroup = await prisma.issueGroup.upsert({
           where: {
-            campaignDataId_type: {
-              campaignDataId: current.id,
+            runId_campaign_type: {
+              runId,
+              campaign: campaignName,
               type: issue.type,
             },
           },
           update: {
+            severity: issue.severity, // escalate if needed
+          },
+          create: {
+            runId,
+            campaign: campaignName,
+            type: issue.type,
             severity: issue.severity,
+          },
+        });
+
+        // 2️⃣ Create occurrence (one per day)
+        await prisma.issueOccurrence.upsert({
+          where: {
+            issueGroupId_campaignDataId: {
+              issueGroupId: issueGroup.id,
+              campaignDataId: current.id,
+            },
+          },
+          update: {
             notes: issue.notes,
           },
           create: {
+            issueGroupId: issueGroup.id,
             campaignDataId: current.id,
-            type: issue.type,
-            severity: issue.severity,
+            date: current.date,
             notes: issue.notes,
           },
         });
@@ -331,6 +518,8 @@ export async function runAnomalyDiagnosticsForRun(runId) {
     }
   }
 }
+
+
 
 /* helpers */
 

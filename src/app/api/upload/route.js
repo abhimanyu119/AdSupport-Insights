@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import {
   normalizeCsvRows,
-  runPreflightDiagnostics,
   runAnomalyDiagnosticsForRun,
+  buildDiscardWarnings,
 } from "@/lib/normalize";
 import { detectPlatform } from "@/lib/platformAdapters";
 
@@ -41,45 +41,59 @@ export async function POST(req) {
     /* ---------- NORMALIZE ---------- */
     const normalized = normalizeCsvRows(dataLines, detectedPlatform, headers);
 
-    if (normalized.length === 0) {
+    const { validRows, warnings, discardedPct } =
+      buildDiscardWarnings(normalized);
+
+    if (validRows.length === 0) {
       return NextResponse.json(
-        { error: "No valid rows found after normalization" },
+        { error: "No valid rows found after validation", warnings },
         { status: 400 },
       );
     }
 
-    /* ---------- LIGHT DIAGNOSTICS ---------- */
-    const warnings = runPreflightDiagnostics(normalized);
-
-    /* ---------- CREATE RUN ---------- */
-    const run = await prisma.analyticsRun.create({
-      data: {
-        name: filename || `CSV Upload - ${new Date().toISOString()}`,
-        source: "CSV",
-        platform: detectedPlatform || "unknown",
-        warnings,
-        rawPayload: {
-          rowCount: normalized.length,
-          headers: headers,
-          detectedPlatform: detectedPlatform,
+    if (discardedPct > 50) {
+      return NextResponse.json(
+        {
+          error: "Upload failed due to excessive invalid data",
+          warnings,
         },
-      },
+        { status: 422 },
+      );
+    }
+
+    /* ---------- CREATE RUN + DATA (ATOMIC) ---------- */
+    const run = await prisma.$transaction(async (tx) => {
+      const createdRun = await tx.analyticsRun.create({
+        data: {
+          name: filename || `CSV Upload - ${new Date().toISOString()}`,
+          source: "CSV",
+          platform: detectedPlatform || "unknown",
+          warnings,
+          rawPayload: {
+            rowCount: validRows.length,
+            discardedPct,
+            headers,
+            detectedPlatform,
+          },
+        },
+      });
+
+      await tx.campaignData.createMany({
+        data: validRows.map((r) => ({
+          runId: createdRun.id,
+          campaign: r.campaign,
+          date: r.date,
+          impressions: r.impressions,
+          clicks: r.clicks,
+          spend: r.spend,
+          conversions: r.conversions,
+        })),
+      });
+
+      return createdRun;
     });
 
-    /* ---------- INSERT DATA ---------- */
-    await prisma.campaignData.createMany({
-      data: normalized.map((r) => ({
-        runId: run.id,
-        campaign: r.campaign,
-        date: r.date,
-        impressions: r.impressions,
-        clicks: r.clicks,
-        spend: r.spend,
-        conversions: r.conversions,
-      })),
-    });
-
-    /* ---------- HEAVY DIAGNOSTICS ---------- */
+    /* ---------- POST-RUN DIAGNOSTICS ---------- */
     await runAnomalyDiagnosticsForRun(run.id);
 
     /* ---------- DONE ---------- */
@@ -87,7 +101,7 @@ export async function POST(req) {
       runId: run.id,
       warnings,
       platform: detectedPlatform,
-      rowsProcessed: normalized.length,
+      rowsProcessed: validRows.length,
     });
   } catch (err) {
     console.error("CSV upload error:", err);
