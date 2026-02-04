@@ -10,7 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "postinstall": "prisma generate",
-    "test-api-ingest": "powershell -ExecutionPolicy ByPass -File ./test-api-ingest.ps1"
+    "test-api-ingest": "powershell -ExecutionPolicy ByPass -File ./tests/test-api-ingest.ps1"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",
