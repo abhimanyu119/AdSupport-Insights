@@ -71,6 +71,8 @@ model IssueOccurrence {
   createdAt     DateTime @default(now())
 
   @@unique([issueGroupId, campaignDataId])
+  @@index([issueGroupId])
+  @@index([campaignDataId])
 }
 
 

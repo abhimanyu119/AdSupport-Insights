@@ -8,6 +8,8 @@ import {
 import { detectPlatform } from "@/lib/platformAdapters";
 
 export async function POST(req) {
+  const startTime = Date.now();
+
   try {
     const { csvText, filename } = await req.json();
 
@@ -19,6 +21,7 @@ export async function POST(req) {
     }
 
     /* ---------- PARSE CSV ---------- */
+    console.time("⏱️  CSV Parsing");
     const lines = csvText
       .split("\n")
       .map((l) => l.trim())
@@ -37,8 +40,10 @@ export async function POST(req) {
     /* ---------- PARSE HEADERS ---------- */
     const headers = lines[0].split(",").map((h) => h.trim());
     const dataLines = lines.slice(1);
+    console.timeEnd("⏱️  CSV Parsing");
 
     /* ---------- NORMALIZE ---------- */
+    console.time("⏱️  Normalization & Validation");
     const normalized = normalizeCsvRows(dataLines, detectedPlatform, headers);
 
     const { validRows, warnings, discardedPct } =
@@ -60,9 +65,15 @@ export async function POST(req) {
         { status: 422 },
       );
     }
+    console.timeEnd("⏱️  Normalization & Validation");
+    console.log(
+      `📊 Valid rows: ${validRows.length}, Discarded: ${discardedPct}%`,
+    );
 
     /* ---------- CREATE RUN + DATA (ATOMIC) ---------- */
+    console.time("⏱️  Database Transaction");
     const run = await prisma.$transaction(async (tx) => {
+      console.time("  └─ Create AnalyticsRun");
       const createdRun = await tx.analyticsRun.create({
         data: {
           name: filename || `CSV Upload - ${new Date().toISOString()}`,
@@ -77,7 +88,9 @@ export async function POST(req) {
           },
         },
       });
+      console.timeEnd("  └─ Create AnalyticsRun");
 
+      console.time("  └─ Insert CampaignData");
       await tx.campaignData.createMany({
         data: validRows.map((r) => ({
           runId: createdRun.id,
@@ -89,14 +102,30 @@ export async function POST(req) {
           conversions: r.conversions,
         })),
       });
+      console.timeEnd("  └─ Insert CampaignData");
 
       return createdRun;
     });
+    console.timeEnd("⏱️  Database Transaction");
 
     /* ---------- POST-RUN DIAGNOSTICS ---------- */
-    await runAnomalyDiagnosticsForRun(run.id);
+    const diagnosticsStartTime = Date.now();
+    runAnomalyDiagnosticsForRun(run.id)
+      .catch((err) => {
+        console.error("Background diagnostics failed:", err);
+      })
+      .then(() => {
+        console.log(
+          `✅ Background diagnostics completed in ${Date.now() - diagnosticsStartTime}ms`,
+        );
+      });
 
     /* ---------- DONE ---------- */
+    const totalTime = Date.now() - startTime;
+    console.log(
+      `🎯 TOTAL UPLOAD TIME: ${totalTime}ms for ${validRows.length} rows`,
+    );
+
     return NextResponse.json({
       runId: run.id,
       warnings,
