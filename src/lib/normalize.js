@@ -364,7 +364,111 @@ function detectIssues(current, rows, index, spend) {
   return issues;
 }
 
+// export async function runAnomalyDiagnosticsForRun(runId) {
+//   const allData = await prisma.campaignData.findMany({
+//     where: { runId },
+//     select: {
+//       id: true,
+//       campaign: true,
+//       date: true,
+//       impressions: true,
+//       clicks: true,
+//       spend: true,
+//       conversions: true,
+//     },
+//     orderBy: [{ campaign: "asc" }, { date: "asc" }],
+//   });
+
+//   if (allData.length === 0) return;
+
+//   const campaignMap = new Map();
+//   for (const row of allData) {
+//     if (!campaignMap.has(row.campaign)) {
+//       campaignMap.set(row.campaign, []);
+//     }
+//     campaignMap.get(row.campaign).push(row);
+//   }
+
+//   const issueGroupsMap = new Map();
+//   const occurrencesToCreate = [];
+//   const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+
+//   for (const [campaignName, rows] of campaignMap) {
+//     for (let i = 0; i < rows.length; i++) {
+//       const current = rows[i];
+//       const spend = Number(current.spend);
+//       const issues = detectIssues(current, rows, i, spend);
+
+//       for (const issue of issues) {
+//         const key = `${campaignName}_${issue.type}`;
+
+//         if (!issueGroupsMap.has(key)) {
+//           issueGroupsMap.set(key, {
+//             runId,
+//             campaign: campaignName,
+//             type: issue.type,
+//             severity: issue.severity,
+//           });
+//         } else {
+//           const existing = issueGroupsMap.get(key);
+//           if (severityRank[issue.severity] > severityRank[existing.severity]) {
+//             existing.severity = issue.severity;
+//           }
+//         }
+
+//         occurrencesToCreate.push({
+//           campaignName,
+//           type: issue.type,
+//           campaignDataId: current.id,
+//           date: current.date,
+//           notes: issue.notes,
+//         });
+//       }
+//     }
+//   }
+
+//   if (issueGroupsMap.size === 0) return;
+
+//   await prisma.$transaction(async (tx) => {
+//     const issueGroupsArray = Array.from(issueGroupsMap.values());
+
+//     await tx.issueGroup.createMany({
+//       data: issueGroupsArray,
+//       skipDuplicates: true,
+//     });
+
+//     const createdGroups = await tx.issueGroup.findMany({
+//       where: { runId },
+//       select: {
+//         id: true,
+//         campaign: true,
+//         type: true,
+//       },
+//     });
+
+//     const groupLookup = new Map();
+//     for (const g of createdGroups) {
+//       groupLookup.set(`${g.campaign}_${g.type}`, g.id);
+//     }
+
+//     const occurrenceData = occurrencesToCreate.map((occ) => ({
+//       issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
+//       campaignDataId: occ.campaignDataId,
+//       date: occ.date,
+//       notes: occ.notes,
+//     }));
+
+//     if (occurrenceData.length > 0) {
+//       await tx.issueOccurrence.createMany({
+//         data: occurrenceData,
+//         skipDuplicates: true,
+//       });
+//     }
+//   });
+// }
+
 export async function runAnomalyDiagnosticsForRun(runId) {
+  // Fetch all campaign data for this run
   const allData = await prisma.campaignData.findMany({
     where: { runId },
     select: {
@@ -381,11 +485,10 @@ export async function runAnomalyDiagnosticsForRun(runId) {
 
   if (allData.length === 0) return;
 
+  // Group rows by campaign
   const campaignMap = new Map();
   for (const row of allData) {
-    if (!campaignMap.has(row.campaign)) {
-      campaignMap.set(row.campaign, []);
-    }
+    if (!campaignMap.has(row.campaign)) campaignMap.set(row.campaign, []);
     campaignMap.get(row.campaign).push(row);
   }
 
@@ -393,10 +496,12 @@ export async function runAnomalyDiagnosticsForRun(runId) {
   const occurrencesToCreate = [];
   const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
 
+  // Detect issues per campaign
   for (const [campaignName, rows] of campaignMap) {
     for (let i = 0; i < rows.length; i++) {
       const current = rows[i];
       const spend = Number(current.spend);
+
       const issues = detectIssues(current, rows, i, spend);
 
       for (const issue of issues) {
@@ -429,43 +534,50 @@ export async function runAnomalyDiagnosticsForRun(runId) {
 
   if (issueGroupsMap.size === 0) return;
 
-  await prisma.$transaction(async (tx) => {
-    const issueGroupsArray = Array.from(issueGroupsMap.values());
+  // ---------------- STEP 1: Upsert issue groups ----------------
+  const issueGroupsArray = Array.from(issueGroupsMap.values());
 
-    await tx.issueGroup.createMany({
-      data: issueGroupsArray,
-      skipDuplicates: true,
-    });
-
-    const createdGroups = await tx.issueGroup.findMany({
-      where: { runId },
-      select: {
-        id: true,
-        campaign: true,
-        type: true,
+  for (const group of issueGroupsArray) {
+    await prisma.issueGroup.upsert({
+      where: {
+        runId_campaign_type: {
+          runId: group.runId,
+          campaign: group.campaign,
+          type: group.type,
+        },
       },
+      update: { severity: group.severity },
+      create: group,
     });
+  }
 
-    const groupLookup = new Map();
-    for (const g of createdGroups) {
-      groupLookup.set(`${g.campaign}_${g.type}`, g.id);
-    }
+  // ---------------- STEP 2: Map group IDs ----------------
+  const createdGroups = await prisma.issueGroup.findMany({
+    where: { runId },
+    select: { id: true, campaign: true, type: true },
+  });
 
-    const occurrenceData = occurrencesToCreate.map((occ) => ({
+  const groupLookup = new Map();
+  for (const g of createdGroups) {
+    groupLookup.set(`${g.campaign}_${g.type}`, g.id);
+  }
+
+  // ---------------- STEP 3: Insert occurrences in batches ----------------
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < occurrencesToCreate.length; i += BATCH_SIZE) {
+    const batch = occurrencesToCreate.slice(i, i + BATCH_SIZE).map((occ) => ({
       issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
       campaignDataId: occ.campaignDataId,
       date: occ.date,
       notes: occ.notes,
     }));
-
-    if (occurrenceData.length > 0) {
-      await tx.issueOccurrence.createMany({
-        data: occurrenceData,
-        skipDuplicates: true,
-      });
-    }
-  });
+    await prisma.issueOccurrence.createMany({
+      data: batch,
+      skipDuplicates: true,
+    });
+  }
 }
+
 
 /* Helper functions */
 
