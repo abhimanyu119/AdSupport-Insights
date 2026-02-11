@@ -21,7 +21,7 @@ export async function POST(req) {
     }
 
     /* ---------- PARSE CSV ---------- */
-    console.time("⏱️  CSV Parsing");
+    console.time("CSV Parsing");
     const lines = csvText
       .split("\n")
       .map((l) => l.trim())
@@ -40,10 +40,10 @@ export async function POST(req) {
     /* ---------- PARSE HEADERS ---------- */
     const headers = lines[0].split(",").map((h) => h.trim());
     const dataLines = lines.slice(1);
-    console.timeEnd("⏱️  CSV Parsing");
+    console.timeEnd("CSV Parsing");
 
     /* ---------- NORMALIZE ---------- */
-    console.time("⏱️  Normalization & Validation");
+    console.time("Normalization & Validation");
     const normalized = normalizeCsvRows(dataLines, detectedPlatform, headers);
 
     const { validRows, warnings, discardedPct } =
@@ -65,13 +65,13 @@ export async function POST(req) {
         { status: 422 },
       );
     }
-    console.timeEnd("⏱️  Normalization & Validation");
+    console.timeEnd("Normalization & Validation");
     console.log(
-      `📊 Valid rows: ${validRows.length}, Discarded: ${discardedPct}%`,
+      `Valid rows: ${validRows.length}, Discarded: ${discardedPct}%`,
     );
 
     /* ---------- CREATE RUN + DATA (ATOMIC) ---------- */
-    console.time("⏱️  Database Transaction");
+    console.time("Database Transaction");
     const run = await prisma.$transaction(async (tx) => {
       console.time("  └─ Create AnalyticsRun");
       const createdRun = await tx.analyticsRun.create({
@@ -106,7 +106,7 @@ export async function POST(req) {
 
       return createdRun;
     });
-    console.timeEnd("⏱️  Database Transaction");
+    console.timeEnd("Database Transaction");
 
     /* ---------- POST-RUN DIAGNOSTICS ---------- */
     const diagnosticsStartTime = Date.now();
@@ -116,14 +116,14 @@ export async function POST(req) {
       })
       .then(() => {
         console.log(
-          `✅ Background diagnostics completed in ${Date.now() - diagnosticsStartTime}ms`,
+          `Background diagnostics completed in ${Date.now() - diagnosticsStartTime}ms`,
         );
       });
 
     /* ---------- DONE ---------- */
     const totalTime = Date.now() - startTime;
     console.log(
-      `🎯 TOTAL UPLOAD TIME: ${totalTime}ms for ${validRows.length} rows`,
+      `TOTAL UPLOAD TIME: ${totalTime}ms for ${validRows.length} rows`,
     );
 
     return NextResponse.json({
