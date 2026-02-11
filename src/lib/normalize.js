@@ -67,8 +67,9 @@ const PLATFORM_FIELD_MAPS = {
   },
 };
 
-/* ================= NORMALIZATION ================= */
-
+/**
+ * Find which CSV column index corresponds to a standard field
+ */
 function findColumnIndex(headers, fieldVariants) {
   const normalizedHeaders = headers.map((h) =>
     h.toLowerCase().replace(/[_\s-]/g, ""),
@@ -83,6 +84,9 @@ function findColumnIndex(headers, fieldVariants) {
   return -1;
 }
 
+/**
+ * Build column mapping for a platform
+ */
 function buildColumnMapping(headers, platform) {
   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
   const mapping = {};
@@ -97,10 +101,18 @@ function buildColumnMapping(headers, platform) {
   return mapping;
 }
 
+/**
+ * Normalize CSV rows with platform-aware field mapping
+ * @param {string[]} rows - Array of CSV row strings
+ * @param {string} platform - Platform identifier (google, meta, amazon, etc.)
+ * @param {string[]} headers - CSV header row split into array
+ */
 export function normalizeCsvRows(rows, platform = "google", headers = null) {
   if (!rows || rows.length === 0) return [];
 
+  // If headers not provided, assume standard order for backward compatibility
   if (!headers) {
+    // Old behavior: date,campaign,impressions,clicks,spend,conversions
     return rows.map((line, index) => {
       const [date, campaign, impressions, clicks, spend, conversions] =
         line.split(",");
@@ -117,6 +129,7 @@ export function normalizeCsvRows(rows, platform = "google", headers = null) {
     });
   }
 
+  // New behavior: use platform-aware mapping
   const columnMapping = buildColumnMapping(headers, platform);
 
   return rows.map((line, index) => {
@@ -159,6 +172,7 @@ export function normalizeApiObjects(objs, platform = "google") {
   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
 
   return objs.map((obj) => {
+    // Normalize API keys like CSV headers
     const normalizedObj = {};
     for (const [key, value] of Object.entries(obj)) {
       const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, "");
@@ -174,9 +188,11 @@ export function normalizeApiObjects(objs, platform = "google") {
       conversions: 0,
     };
 
+    // Match using normalized variants
     for (const [standardField, variants] of Object.entries(fieldMap)) {
       for (const variant of variants) {
         const normalizedVariant = variant.toLowerCase().replace(/[_\s-]/g, "");
+
         if (normalizedObj[normalizedVariant] !== undefined) {
           const value = normalizedObj[normalizedVariant];
 
@@ -200,12 +216,17 @@ export function normalizeApiObjects(objs, platform = "google") {
               normalized.conversions = safeInt(value);
               break;
           }
-          break;
+
+          break; // stop after first match
         }
       }
     }
 
-    if (!normalized.campaign || normalized.campaign === "UNKNOWN") {
+    if (
+      normalized.campaign === "UNKNOWN" ||
+      normalized.campaign === null ||
+      normalized.campaign === ""
+    ) {
       normalized.campaign =
         obj.campaign ??
         obj.campaign_name ??
@@ -223,6 +244,7 @@ export function buildDiscardWarnings(rows) {
   const valid = [];
 
   for (const row of rows) {
+    // Empty row → silently skip
     if (
       !row.campaign &&
       !row.date &&
@@ -238,17 +260,24 @@ export function buildDiscardWarnings(rows) {
 
     if (!row.campaign || row.campaign === "UNKNOWN")
       reasons.push("missing campaign");
+
     if (!row.date || isNaN(new Date(row.date).getTime()))
       reasons.push("invalid date");
+
     if (row.impressions < 0) reasons.push("negative impressions");
     if (row.clicks < 0) reasons.push("negative clicks");
     if (row.spend < 0) reasons.push("negative spend");
     if (row.conversions < 0) reasons.push("negative conversions");
+
     if (row.clicks > row.impressions) reasons.push("clicks > impressions");
+
     if (row.conversions > row.clicks) reasons.push("conversions > clicks");
 
-    if (reasons.length > 0) discarded.push({ row, reasons });
-    else valid.push(row);
+    if (reasons.length > 0) {
+      discarded.push({ row, reasons });
+    } else {
+      valid.push(row);
+    }
   }
 
   const total = valid.length + discarded.length;
@@ -270,14 +299,20 @@ export function buildDiscardWarnings(rows) {
     });
   }
 
-  return { validRows: valid, warnings, discardedPct };
+  return {
+    validRows: valid,
+    warnings,
+    discardedPct,
+  };
 }
 
-/* ================= ANOMALY DETECTION ================= */
-
+/**
+ * Detect anomalies/issues for a single campaign data row
+ */
 function detectIssues(current, rows, index, spend) {
   const issues = [];
 
+  // Issue 1: Zero impressions
   if (current.impressions === 0) {
     issues.push({
       type: "ZERO_IMPRESSIONS",
@@ -286,6 +321,7 @@ function detectIssues(current, rows, index, spend) {
     });
   }
 
+  // Issue 2: High spend with no conversions
   if (spend > 500 && current.conversions === 0) {
     let severity = "MEDIUM";
     if (current.impressions === 0) severity = "CRITICAL";
@@ -298,6 +334,7 @@ function detectIssues(current, rows, index, spend) {
     });
   }
 
+  // Issue 3: Low CTR
   if (current.impressions > 500) {
     const ctr = current.clicks / current.impressions;
     if (ctr < 0.005) {
@@ -309,6 +346,7 @@ function detectIssues(current, rows, index, spend) {
     }
   }
 
+  // Issue 4: Sudden drop in impressions
   if (index >= 3) {
     const baseline =
       rows.slice(index - 3, index).reduce((sum, r) => sum + r.impressions, 0) /
@@ -326,102 +364,86 @@ function detectIssues(current, rows, index, spend) {
   return issues;
 }
 
-/* ================= SAFE SERVERLESS DIAGNOSTICS ================= */
-
 export async function runAnomalyDiagnosticsForRun(runId) {
-  try {
-    const allData = await prisma.campaignData.findMany({
+  const allData = await prisma.campaignData.findMany({
+    where: { runId },
+    select: {
+      id: true,
+      campaign: true,
+      date: true,
+      impressions: true,
+      clicks: true,
+      spend: true,
+      conversions: true,
+    },
+    orderBy: [{ campaign: "asc" }, { date: "asc" }],
+  });
+
+  if (allData.length === 0) return;
+
+  const campaignMap = new Map();
+  for (const row of allData) {
+    if (!campaignMap.has(row.campaign)) {
+      campaignMap.set(row.campaign, []);
+    }
+    campaignMap.get(row.campaign).push(row);
+  }
+
+  const issueGroupsMap = new Map();
+  const occurrencesToCreate = [];
+  const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+
+  for (const [campaignName, rows] of campaignMap) {
+    for (let i = 0; i < rows.length; i++) {
+      const current = rows[i];
+      const spend = Number(current.spend);
+      const issues = detectIssues(current, rows, i, spend);
+
+      for (const issue of issues) {
+        const key = `${campaignName}_${issue.type}`;
+
+        if (!issueGroupsMap.has(key)) {
+          issueGroupsMap.set(key, {
+            runId,
+            campaign: campaignName,
+            type: issue.type,
+            severity: issue.severity,
+          });
+        } else {
+          const existing = issueGroupsMap.get(key);
+          if (severityRank[issue.severity] > severityRank[existing.severity]) {
+            existing.severity = issue.severity;
+          }
+        }
+
+        occurrencesToCreate.push({
+          campaignName,
+          type: issue.type,
+          campaignDataId: current.id,
+          date: current.date,
+          notes: issue.notes,
+        });
+      }
+    }
+  }
+
+  if (issueGroupsMap.size === 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    const issueGroupsArray = Array.from(issueGroupsMap.values());
+
+    await tx.issueGroup.createMany({
+      data: issueGroupsArray,
+      skipDuplicates: true,
+    });
+
+    const createdGroups = await tx.issueGroup.findMany({
       where: { runId },
       select: {
         id: true,
         campaign: true,
-        date: true,
-        impressions: true,
-        clicks: true,
-        spend: true,
-        conversions: true,
+        type: true,
       },
-      orderBy: [{ campaign: "asc" }, { date: "asc" }],
-    });
-
-    if (allData.length === 0) {
-      await prisma.analyticsRun.update({
-        where: { id: runId },
-        data: {
-          rawPayload: {
-            diagnosticsComplete: true,
-            diagnosticsCompletedAt: new Date().toISOString(),
-          },
-        },
-      });
-      return;
-    }
-
-    const campaignMap = new Map();
-    for (const row of allData) {
-      if (!campaignMap.has(row.campaign)) {
-        campaignMap.set(row.campaign, []);
-      }
-      campaignMap.get(row.campaign).push(row);
-    }
-
-    const issueGroupsMap = new Map();
-    const occurrencesToCreate = [];
-    const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
-
-    for (const [campaignName, rows] of campaignMap) {
-      for (let i = 0; i < rows.length; i++) {
-        const current = rows[i];
-        const spend = Number(current.spend);
-        const issues = detectIssues(current, rows, i, spend);
-
-        for (const issue of issues) {
-          const key = `${campaignName}_${issue.type}`;
-
-          if (!issueGroupsMap.has(key)) {
-            issueGroupsMap.set(key, {
-              runId,
-              campaign: campaignName,
-              type: issue.type,
-              severity: issue.severity,
-            });
-          } else {
-            const existing = issueGroupsMap.get(key);
-            if (
-              severityRank[issue.severity] > severityRank[existing.severity]
-            ) {
-              existing.severity = issue.severity;
-            }
-          }
-
-          occurrencesToCreate.push({
-            campaignName,
-            type: issue.type,
-            campaignDataId: current.id,
-            date: current.date,
-            notes: issue.notes,
-          });
-        }
-      }
-    }
-
-    const issueGroupsArray = Array.from(issueGroupsMap.values());
-
-    const GROUP_BATCH_SIZE = 200;
-    for (let i = 0; i < issueGroupsArray.length; i += GROUP_BATCH_SIZE) {
-      await prisma.issueGroup.createMany({
-        data: issueGroupsArray.slice(i, i + GROUP_BATCH_SIZE),
-        skipDuplicates: true,
-      });
-    }
-
-    const relevantCampaigns = [
-      ...new Set(issueGroupsArray.map((g) => g.campaign)),
-    ];
-
-    const createdGroups = await prisma.issueGroup.findMany({
-      where: { runId, campaign: { in: relevantCampaigns } },
-      select: { id: true, campaign: true, type: true },
     });
 
     const groupLookup = new Map();
@@ -429,56 +451,23 @@ export async function runAnomalyDiagnosticsForRun(runId) {
       groupLookup.set(`${g.campaign}_${g.type}`, g.id);
     }
 
-    const occurrenceData = occurrencesToCreate
-      .map((occ) => ({
-        issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
-        campaignDataId: occ.campaignDataId,
-        date: occ.date,
-        notes: occ.notes,
-      }))
-      .filter((o) => o.issueGroupId);
+    const occurrenceData = occurrencesToCreate.map((occ) => ({
+      issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
+      campaignDataId: occ.campaignDataId,
+      date: occ.date,
+      notes: occ.notes,
+    }));
 
-    const OCC_BATCH = 300;
-    for (let i = 0; i < occurrenceData.length; i += OCC_BATCH) {
-      await prisma.issueOccurrence.createMany({
-        data: occurrenceData.slice(i, i + OCC_BATCH),
+    if (occurrenceData.length > 0) {
+      await tx.issueOccurrence.createMany({
+        data: occurrenceData,
         skipDuplicates: true,
       });
     }
-
-    await prisma.analyticsRun.update({
-      where: { id: runId },
-      data: {
-        rawPayload: {
-          diagnosticsComplete: true,
-          diagnosticsCompletedAt: new Date().toISOString(),
-          issueGroupCount: issueGroupsArray.length,
-          occurrenceCount: occurrenceData.length,
-        },
-      },
-    });
-  } catch (error) {
-    console.error(`Diagnostics failed for run ${runId}:`, error);
-
-    await prisma.analyticsRun
-      .update({
-        where: { id: runId },
-        data: {
-          rawPayload: {
-            diagnosticsComplete: false,
-            diagnosticsFailed: true,
-            diagnosticsError: error.message,
-            diagnosticsFailedAt: new Date().toISOString(),
-          },
-        },
-      })
-      .catch(() => {});
-
-    throw error;
-  }
+  });
 }
 
-/* ================= HELPERS ================= */
+/* Helper functions */
 
 function safeInt(v) {
   if (v === null || v === undefined || v === "") return 0;

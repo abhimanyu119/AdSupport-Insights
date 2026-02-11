@@ -229,6 +229,7 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
             notes, issue type, or campaign name
           </p>
         </div>
+        {/* </div> */}
 
         {/* Occurrences List */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
@@ -464,7 +465,6 @@ function DashboardContent() {
   const [runs, setRuns] = useState([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [loadingRunDetails, setLoadingRunDetails] = useState(false);
-  const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
 
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
   const [scatterData, setScatterData] = useState([]);
@@ -502,48 +502,14 @@ function DashboardContent() {
       setIssueStats([]);
       setWarnings([]);
       setExpandedGroups(new Set());
-      setDiagnosticsRunning(false);
       return;
     }
-
-    let pollInterval = null;
 
     async function load() {
       setLoadingRunDetails(true);
       try {
         const data = await fetchRunDetails(activeRunId);
         const rows = data.campaignData ?? [];
-
-        // Check diagnostics status
-        const diagnosticsComplete =
-          data.rawPayload?.diagnosticsComplete === true;
-        const diagnosticsFailed = data.rawPayload?.diagnosticsFailed === true;
-
-        if (!diagnosticsComplete && !diagnosticsFailed) {
-          // Diagnostics still running - start polling
-          setDiagnosticsRunning(true);
-
-          if (!pollInterval) {
-            pollInterval = setInterval(async () => {
-              const refreshed = await fetchRunDetails(activeRunId);
-              const stillRunning =
-                !refreshed.rawPayload?.diagnosticsComplete &&
-                !refreshed.rawPayload?.diagnosticsFailed;
-
-              if (!stillRunning) {
-                // Diagnostics completed or failed - reload full data
-                setDiagnosticsRunning(false);
-                clearInterval(pollInterval);
-                load(); // Reload to get issue groups
-              }
-            }, 5000); // Poll every 5 seconds
-          }
-        } else {
-          setDiagnosticsRunning(false);
-          if (pollInterval) {
-            clearInterval(pollInterval);
-          }
-        }
 
         /* METRICS */
         let impressions = 0,
@@ -618,13 +584,6 @@ function DashboardContent() {
     }
 
     load();
-
-    // Cleanup polling on unmount or when activeRunId changes
-    return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
-    };
   }, [activeRunId]);
 
   /* ---------------- SORT + FILTER (MEMOIZED) ---------------- */
@@ -761,22 +720,6 @@ function DashboardContent() {
           <MetricsCard label="CONVERSIONS" value={metrics.conversions} />
           <MetricsCard label="CTR" value={metrics.ctr} isCTR />
         </section>
-
-        {/* DIAGNOSTICS RUNNING INDICATOR */}
-        {diagnosticsRunning && (
-          <div className="bg-blue-900/30 border border-blue-700 rounded p-4 flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
-            <div>
-              <div className="text-sm font-medium text-blue-300">
-                Running diagnostics...
-              </div>
-              <div className="text-xs text-blue-400 mt-0.5">
-                Analyzing campaign data for anomalies and issues. This may take
-                a few moments.
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* WARNINGS */}
         {warnings.map((w, i) => (
