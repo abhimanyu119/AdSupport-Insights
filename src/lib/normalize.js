@@ -67,9 +67,8 @@ const PLATFORM_FIELD_MAPS = {
   },
 };
 
-/**
- * Find which CSV column index corresponds to a standard field
- */
+/* ================= NORMALIZATION ================= */
+
 function findColumnIndex(headers, fieldVariants) {
   const normalizedHeaders = headers.map((h) =>
     h.toLowerCase().replace(/[_\s-]/g, ""),
@@ -84,9 +83,6 @@ function findColumnIndex(headers, fieldVariants) {
   return -1;
 }
 
-/**
- * Build column mapping for a platform
- */
 function buildColumnMapping(headers, platform) {
   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
   const mapping = {};
@@ -101,18 +97,10 @@ function buildColumnMapping(headers, platform) {
   return mapping;
 }
 
-/**
- * Normalize CSV rows with platform-aware field mapping
- * @param {string[]} rows - Array of CSV row strings
- * @param {string} platform - Platform identifier (google, meta, amazon, etc.)
- * @param {string[]} headers - CSV header row split into array
- */
 export function normalizeCsvRows(rows, platform = "google", headers = null) {
   if (!rows || rows.length === 0) return [];
 
-  // If headers not provided, assume standard order for backward compatibility
   if (!headers) {
-    // Old behavior: date,campaign,impressions,clicks,spend,conversions
     return rows.map((line, index) => {
       const [date, campaign, impressions, clicks, spend, conversions] =
         line.split(",");
@@ -129,7 +117,6 @@ export function normalizeCsvRows(rows, platform = "google", headers = null) {
     });
   }
 
-  // New behavior: use platform-aware mapping
   const columnMapping = buildColumnMapping(headers, platform);
 
   return rows.map((line, index) => {
@@ -172,7 +159,6 @@ export function normalizeApiObjects(objs, platform = "google") {
   const fieldMap = PLATFORM_FIELD_MAPS[platform] || PLATFORM_FIELD_MAPS.google;
 
   return objs.map((obj) => {
-    // Normalize API keys like CSV headers
     const normalizedObj = {};
     for (const [key, value] of Object.entries(obj)) {
       const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, "");
@@ -188,11 +174,9 @@ export function normalizeApiObjects(objs, platform = "google") {
       conversions: 0,
     };
 
-    // Match using normalized variants
     for (const [standardField, variants] of Object.entries(fieldMap)) {
       for (const variant of variants) {
         const normalizedVariant = variant.toLowerCase().replace(/[_\s-]/g, "");
-
         if (normalizedObj[normalizedVariant] !== undefined) {
           const value = normalizedObj[normalizedVariant];
 
@@ -216,17 +200,12 @@ export function normalizeApiObjects(objs, platform = "google") {
               normalized.conversions = safeInt(value);
               break;
           }
-
-          break; // stop after first match
+          break;
         }
       }
     }
 
-    if (
-      normalized.campaign === "UNKNOWN" ||
-      normalized.campaign === null ||
-      normalized.campaign === ""
-    ) {
+    if (!normalized.campaign || normalized.campaign === "UNKNOWN") {
       normalized.campaign =
         obj.campaign ??
         obj.campaign_name ??
@@ -244,7 +223,6 @@ export function buildDiscardWarnings(rows) {
   const valid = [];
 
   for (const row of rows) {
-    // Empty row → silently skip
     if (
       !row.campaign &&
       !row.date &&
@@ -260,24 +238,17 @@ export function buildDiscardWarnings(rows) {
 
     if (!row.campaign || row.campaign === "UNKNOWN")
       reasons.push("missing campaign");
-
     if (!row.date || isNaN(new Date(row.date).getTime()))
       reasons.push("invalid date");
-
     if (row.impressions < 0) reasons.push("negative impressions");
     if (row.clicks < 0) reasons.push("negative clicks");
     if (row.spend < 0) reasons.push("negative spend");
     if (row.conversions < 0) reasons.push("negative conversions");
-
     if (row.clicks > row.impressions) reasons.push("clicks > impressions");
-
     if (row.conversions > row.clicks) reasons.push("conversions > clicks");
 
-    if (reasons.length > 0) {
-      discarded.push({ row, reasons });
-    } else {
-      valid.push(row);
-    }
+    if (reasons.length > 0) discarded.push({ row, reasons });
+    else valid.push(row);
   }
 
   const total = valid.length + discarded.length;
@@ -299,20 +270,14 @@ export function buildDiscardWarnings(rows) {
     });
   }
 
-  return {
-    validRows: valid,
-    warnings,
-    discardedPct,
-  };
+  return { validRows: valid, warnings, discardedPct };
 }
 
-/**
- * Detect anomalies/issues for a single campaign data row
- */
+/* ================= ANOMALY DETECTION ================= */
+
 function detectIssues(current, rows, index, spend) {
   const issues = [];
 
-  // Issue 1: Zero impressions
   if (current.impressions === 0) {
     issues.push({
       type: "ZERO_IMPRESSIONS",
@@ -321,7 +286,6 @@ function detectIssues(current, rows, index, spend) {
     });
   }
 
-  // Issue 2: High spend with no conversions
   if (spend > 500 && current.conversions === 0) {
     let severity = "MEDIUM";
     if (current.impressions === 0) severity = "CRITICAL";
@@ -334,7 +298,6 @@ function detectIssues(current, rows, index, spend) {
     });
   }
 
-  // Issue 3: Low CTR
   if (current.impressions > 500) {
     const ctr = current.clicks / current.impressions;
     if (ctr < 0.005) {
@@ -346,7 +309,6 @@ function detectIssues(current, rows, index, spend) {
     }
   }
 
-  // Issue 4: Sudden drop in impressions
   if (index >= 3) {
     const baseline =
       rows.slice(index - 3, index).reduce((sum, r) => sum + r.impressions, 0) /
@@ -364,10 +326,8 @@ function detectIssues(current, rows, index, spend) {
   return issues;
 }
 
-/**
- * Run anomaly diagnostics for a given analytics run
- * Async operation - updates rawPayload.diagnosticsComplete when done
- */
+/* ================= SAFE SERVERLESS DIAGNOSTICS ================= */
+
 export async function runAnomalyDiagnosticsForRun(runId) {
   try {
     const allData = await prisma.campaignData.findMany({
@@ -385,7 +345,6 @@ export async function runAnomalyDiagnosticsForRun(runId) {
     });
 
     if (allData.length === 0) {
-      // Mark as complete even if no data
       await prisma.analyticsRun.update({
         where: { id: runId },
         data: {
@@ -446,64 +405,47 @@ export async function runAnomalyDiagnosticsForRun(runId) {
       }
     }
 
-    if (issueGroupsMap.size === 0) {
-      // Mark as complete even if no issues found
-      await prisma.analyticsRun.update({
-        where: { id: runId },
-        data: {
-          rawPayload: {
-            diagnosticsComplete: true,
-            diagnosticsCompletedAt: new Date().toISOString(),
-            issueGroupCount: 0,
-            occurrenceCount: 0,
-          },
-        },
-      });
-      return;
-    }
-
-    // Remove transaction - operations are idempotent with skipDuplicates
-    // This prevents timeout issues on large datasets (>5 seconds)
     const issueGroupsArray = Array.from(issueGroupsMap.values());
 
-    // Step 1: Create issue groups
-    await prisma.issueGroup.createMany({
-      data: issueGroupsArray,
-      skipDuplicates: true,
-    });
+    const GROUP_BATCH_SIZE = 200;
+    for (let i = 0; i < issueGroupsArray.length; i += GROUP_BATCH_SIZE) {
+      await prisma.issueGroup.createMany({
+        data: issueGroupsArray.slice(i, i + GROUP_BATCH_SIZE),
+        skipDuplicates: true,
+      });
+    }
 
-    // Step 2: Fetch created groups
+    const relevantCampaigns = [
+      ...new Set(issueGroupsArray.map((g) => g.campaign)),
+    ];
+
     const createdGroups = await prisma.issueGroup.findMany({
-      where: { runId },
-      select: {
-        id: true,
-        campaign: true,
-        type: true,
-      },
+      where: { runId, campaign: { in: relevantCampaigns } },
+      select: { id: true, campaign: true, type: true },
     });
 
-    // Step 3: Build lookup map
     const groupLookup = new Map();
     for (const g of createdGroups) {
       groupLookup.set(`${g.campaign}_${g.type}`, g.id);
     }
 
-    // Step 4: Create occurrences
-    const occurrenceData = occurrencesToCreate.map((occ) => ({
-      issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
-      campaignDataId: occ.campaignDataId,
-      date: occ.date,
-      notes: occ.notes,
-    }));
+    const occurrenceData = occurrencesToCreate
+      .map((occ) => ({
+        issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
+        campaignDataId: occ.campaignDataId,
+        date: occ.date,
+        notes: occ.notes,
+      }))
+      .filter((o) => o.issueGroupId);
 
-    if (occurrenceData.length > 0) {
+    const OCC_BATCH = 300;
+    for (let i = 0; i < occurrenceData.length; i += OCC_BATCH) {
       await prisma.issueOccurrence.createMany({
-        data: occurrenceData,
+        data: occurrenceData.slice(i, i + OCC_BATCH),
         skipDuplicates: true,
       });
     }
 
-    // Mark diagnostics as complete
     await prisma.analyticsRun.update({
       where: { id: runId },
       data: {
@@ -518,7 +460,6 @@ export async function runAnomalyDiagnosticsForRun(runId) {
   } catch (error) {
     console.error(`Diagnostics failed for run ${runId}:`, error);
 
-    // Mark as failed in database
     await prisma.analyticsRun
       .update({
         where: { id: runId },
@@ -531,15 +472,13 @@ export async function runAnomalyDiagnosticsForRun(runId) {
           },
         },
       })
-      .catch((err) => {
-        console.error(`Failed to update run ${runId} with error status:`, err);
-      });
+      .catch(() => {});
 
     throw error;
   }
 }
 
-/* Helper functions */
+/* ================= HELPERS ================= */
 
 function safeInt(v) {
   if (v === null || v === undefined || v === "") return 0;
