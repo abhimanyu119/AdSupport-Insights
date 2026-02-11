@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense, useCallback, memo } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  Suspense,
+  useCallback,
+  memo,
+} from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -72,17 +79,17 @@ function severityRank(sev) {
 }
 
 function formatDate(dateString) {
-  return new Date(dateString).toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    year: 'numeric'
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
 function groupOccurrencesByDate(occurrences) {
   const grouped = {};
-  
-  occurrences.forEach(occ => {
+
+  occurrences.forEach((occ) => {
     const dateKey = new Date(occ.date).toDateString();
     if (!grouped[dateKey]) {
       grouped[dateKey] = {
@@ -95,31 +102,31 @@ function groupOccurrencesByDate(occurrences) {
     grouped[dateKey].notes.push(occ.notes);
   });
 
-  return Object.values(grouped).sort((a, b) => 
-    new Date(b.date) - new Date(a.date)
+  return Object.values(grouped).sort(
+    (a, b) => new Date(b.date) - new Date(a.date),
   );
 }
 
 function getLast7DaysOccurrences(groupedOccurrences) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  
-  return groupedOccurrences.filter(item => 
-    new Date(item.date) >= sevenDaysAgo
+
+  return groupedOccurrences.filter(
+    (item) => new Date(item.date) >= sevenDaysAgo,
   );
 }
 
 function getDateRange(occurrences) {
-  if (occurrences.length === 0) return '';
-  
-  const dates = occurrences.map(o => new Date(o.date));
+  if (occurrences.length === 0) return "";
+
+  const dates = occurrences.map((o) => new Date(o.date));
   const minDate = new Date(Math.min(...dates));
   const maxDate = new Date(Math.max(...dates));
-  
+
   if (minDate.toDateString() === maxDate.toDateString()) {
     return formatDate(minDate);
   }
-  
+
   return `${formatDate(minDate)} - ${formatDate(maxDate)}`;
 }
 
@@ -133,7 +140,7 @@ const MetricsCard = memo(({ label, value, isCTR }) => (
     </div>
   </div>
 ));
-MetricsCard.displayName = 'MetricsCard';
+MetricsCard.displayName = "MetricsCard";
 
 const WarningAlert = memo(({ warning }) => (
   <div
@@ -143,33 +150,42 @@ const WarningAlert = memo(({ warning }) => (
     {warning.message}
   </div>
 ));
-WarningAlert.displayName = 'WarningAlert';
+WarningAlert.displayName = "WarningAlert";
 
 const OccurrenceDetailModal = memo(({ group, onClose }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  
+  const [searchTerm, setSearchTerm] = useState("");
+
   const filteredOccurrences = useMemo(() => {
     if (!searchTerm) return group.occurrences;
-    
+
     const searchLower = searchTerm.toLowerCase();
-    
-    return group.occurrences.filter(occ => {
+
+    return group.occurrences.filter((occ) => {
       // Search in notes
       const notesMatch = occ.notes.toLowerCase().includes(searchLower);
-      
+
       // Search in formatted date (e.g., "Jan 15, 2024")
-      const dateMatch = formatDate(occ.date).toLowerCase().includes(searchLower);
-      
+      const dateMatch = formatDate(occ.date)
+        .toLowerCase()
+        .includes(searchLower);
+
       // Search in raw date string (e.g., "2024-01-15")
-      const rawDateMatch = new Date(occ.date).toISOString().includes(searchLower);
-      
+      const rawDateMatch = new Date(occ.date)
+        .toISOString()
+        .includes(searchLower);
+
       // Search in issue type
-      const typeMatch = group.type.toLowerCase().replace(/_/g, ' ').includes(searchLower);
-      
+      const typeMatch = group.type
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .includes(searchLower);
+
       // Search in campaign name
       const campaignMatch = group.campaign.toLowerCase().includes(searchLower);
-      
-      return notesMatch || dateMatch || rawDateMatch || typeMatch || campaignMatch;
+
+      return (
+        notesMatch || dateMatch || rawDateMatch || typeMatch || campaignMatch
+      );
     });
   }, [group.occurrences, group.type, group.campaign, searchTerm]);
 
@@ -213,7 +229,6 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
             notes, issue type, or campaign name
           </p>
         </div>
-        {/* </div> */}
 
         {/* Occurrences List */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
@@ -260,175 +275,172 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
     </div>
   );
 });
-OccurrenceDetailModal.displayName = 'OccurrenceDetailModal';
+OccurrenceDetailModal.displayName = "OccurrenceDetailModal";
 
-const IssueGroupItem = memo(({ 
-  group, 
-  isExpanded, 
-  isUpdating, 
-  onToggle, 
-  onStatusChange,
-  onViewAll,
-}) => {
-  const [showMoreCount, setShowMoreCount] = useState(3);
-  
-  const groupedOccurrences = useMemo(() => 
-    groupOccurrencesByDate(group.occurrences),
-    [group.occurrences]
-  );
+const IssueGroupItem = memo(
+  ({ group, isExpanded, isUpdating, onToggle, onStatusChange, onViewAll }) => {
+    const [showMoreCount, setShowMoreCount] = useState(3);
 
-  const last7Days = useMemo(() => 
-    getLast7DaysOccurrences(groupedOccurrences),
-    [groupedOccurrences]
-  );
+    const groupedOccurrences = useMemo(
+      () => groupOccurrencesByDate(group.occurrences),
+      [group.occurrences],
+    );
 
-  const dateRange = useMemo(() => 
-    getDateRange(group.occurrences),
-    [group.occurrences]
-  );
+    const last7Days = useMemo(
+      () => getLast7DaysOccurrences(groupedOccurrences),
+      [groupedOccurrences],
+    );
 
-  const displayedOccurrences = useMemo(() => 
-    last7Days.slice(0, showMoreCount),
-    [last7Days, showMoreCount]
-  );
+    const dateRange = useMemo(
+      () => getDateRange(group.occurrences),
+      [group.occurrences],
+    );
 
-  const hasMore = showMoreCount < last7Days.length;
-  const remainingCount = last7Days.length - showMoreCount;
+    const displayedOccurrences = useMemo(
+      () => last7Days.slice(0, showMoreCount),
+      [last7Days, showMoreCount],
+    );
 
-  const handleShowMore = useCallback(() => {
-    setShowMoreCount(prev => Math.min(prev + 10, last7Days.length));
-  }, [last7Days.length]);
+    const hasMore = showMoreCount < last7Days.length;
+    const remainingCount = last7Days.length - showMoreCount;
 
-  const handleCollapse = useCallback(() => {
-    setShowMoreCount(3);
-    onToggle();
-  }, [onToggle]);
+    const handleShowMore = useCallback(() => {
+      setShowMoreCount((prev) => Math.min(prev + 10, last7Days.length));
+    }, [last7Days.length]);
 
-  return (
-    <div className="bg-slate-900 p-4 rounded border border-slate-700 mb-3">
-      <div className="flex items-center justify-between">
-        <div
-          onClick={isExpanded ? handleCollapse : onToggle}
-          className="flex items-center gap-2 cursor-pointer flex-1"
-        >
-          {isExpanded ? (
-            <ChevronDown size={14} />
-          ) : (
-            <ChevronRight size={14} />
-          )}
+    const handleCollapse = useCallback(() => {
+      setShowMoreCount(3);
+      onToggle();
+    }, [onToggle]);
 
-          <span
-            className={`text-xs px-2 py-0.5 rounded ${SEVERITY_BADGE[group.severity]}`}
+    return (
+      <div className="bg-slate-900 p-4 rounded border border-slate-700 mb-3">
+        <div className="flex items-center justify-between">
+          <div
+            onClick={isExpanded ? handleCollapse : onToggle}
+            className="flex items-center gap-2 cursor-pointer flex-1"
           >
-            {group.severity}
-          </span>
+            {isExpanded ? (
+              <ChevronDown size={14} />
+            ) : (
+              <ChevronRight size={14} />
+            )}
 
-          <span className="text-sm font-medium">
-            {group.type.replace(/_/g, " ")} · {group.campaign}
-          </span>
-
-          {!isExpanded && (
-            <span className="text-xs text-slate-400">
-              | {group.occurrences.length} occurrence{group.occurrences.length !== 1 ? 's' : ''} | {dateRange}
+            <span
+              className={`text-xs px-2 py-0.5 rounded ${SEVERITY_BADGE[group.severity]}`}
+            >
+              {group.severity}
             </span>
-          )}
-        </div>
 
-        <div className="flex items-center gap-2">
-          {isUpdating && (
-            <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-          )}
+            <span className="text-sm font-medium">
+              {group.type.replace(/_/g, " ")} · {group.campaign}
+            </span>
 
-          <select
-            value={group.status}
-            onChange={(e) => onStatusChange(group.id, e.target.value)}
-            className="bg-slate-800 border border-slate-600 text-xs rounded px-2 py-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <option value="OPEN">Open</option>
-            <option value="INVESTIGATING">Investigating</option>
-            <option value="RESOLVED">Resolved</option>
-          </select>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <div className="mt-4 space-y-3">
-          {/* Summary Stats */}
-          <div className="flex items-center gap-4 text-xs text-slate-400 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-1">
-              <TrendingUp size={12} />
-              <span>{group.occurrences.length} total occurrences</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Calendar size={12} />
-              <span>{dateRange}</span>
-            </div>
+            {!isExpanded && (
+              <span className="text-xs text-slate-400">
+                | {group.occurrences.length} occurrence
+                {group.occurrences.length !== 1 ? "s" : ""} | {dateRange}
+              </span>
+            )}
           </div>
 
-          {/* Recent Activity Header */}
-          <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-            📊 Recent Activity (Last 7 days):
-          </div>
+          <div className="flex items-center gap-2">
+            {isUpdating && (
+              <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+            )}
 
-          {/* Grouped Occurrences */}
-          <div className="space-y-2">
-            {displayedOccurrences.length > 0 ? (
-              displayedOccurrences.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="bg-slate-800/50 border border-slate-700 rounded p-3 text-xs"
-                >
-                  <div className="flex justify-between items-start gap-3">
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-200 mb-1">
-                        {formatDate(item.date)}: {item.count} occurrence{item.count !== 1 ? 's' : ''}
-                      </div>
-                      <div className="text-slate-400">
-                        {item.notes[0]}
-                        {item.count > 1 && (
-                          <span className="ml-1 text-slate-500">
-                            (and {item.count - 1} more)
-                          </span>
-                        )}
+            <select
+              value={group.status}
+              onChange={(e) => onStatusChange(group.id, e.target.value)}
+              className="bg-slate-800 border border-slate-600 text-xs rounded px-2 py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="OPEN">Open</option>
+              <option value="INVESTIGATING">Investigating</option>
+              <option value="RESOLVED">Resolved</option>
+            </select>
+          </div>
+        </div>
+
+        {isExpanded && (
+          <div className="mt-4 space-y-3">
+            {/* Summary Stats */}
+            <div className="flex items-center gap-4 text-xs text-slate-400 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-1">
+                <TrendingUp size={12} />
+                <span>{group.occurrences.length} total occurrences</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Calendar size={12} />
+                <span>{dateRange}</span>
+              </div>
+            </div>
+
+            {/* Recent Activity Header */}
+            <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+              📊 Recent Activity (Last 7 days):
+            </div>
+
+            {/* Grouped Occurrences */}
+            <div className="space-y-2">
+              {displayedOccurrences.length > 0 ? (
+                displayedOccurrences.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-slate-800/50 border border-slate-700 rounded p-3 text-xs"
+                  >
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-200 mb-1">
+                          {formatDate(item.date)}: {item.count} occurrence
+                          {item.count !== 1 ? "s" : ""}
+                        </div>
+                        <div className="text-slate-400">
+                          {item.notes[0]}
+                          {item.count > 1 && (
+                            <span className="ml-1 text-slate-500">
+                              (and {item.count - 1} more)
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-slate-500 text-center py-4">
+                  No occurrences in the last 7 days
                 </div>
-              ))
-            ) : (
-              <div className="text-slate-500 text-center py-4">
-                No occurrences in the last 7 days
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-2">
-            {hasMore && (
-              <button
-                onClick={handleShowMore}
-                className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded transition-colors"
-              >
-                Show more ({remainingCount} remaining)
-              </button>
-            )}
-            
-            {group.occurrences.length > 3 && (
-              <button
-                onClick={() => onViewAll(group)}
-                className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors flex items-center gap-1"
-              >
-                View all {group.occurrences.length} in detail →
-              </button>
-            )}
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              {hasMore && (
+                <button
+                  onClick={handleShowMore}
+                  className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded transition-colors"
+                >
+                  Show more ({remainingCount} remaining)
+                </button>
+              )}
+
+              {group.occurrences.length > 3 && (
+                <button
+                  onClick={() => onViewAll(group)}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors flex items-center gap-1"
+                >
+                  View all {group.occurrences.length} in detail →
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
-});
-IssueGroupItem.displayName = 'IssueGroupItem';
+        )}
+      </div>
+    );
+  },
+);
+IssueGroupItem.displayName = "IssueGroupItem";
 
 const RunListItem = memo(({ run, isActive, onClick }) => (
   <div
@@ -440,7 +452,7 @@ const RunListItem = memo(({ run, isActive, onClick }) => (
     <div className="text-sm">{run.name}</div>
   </div>
 ));
-RunListItem.displayName = 'RunListItem';
+RunListItem.displayName = "RunListItem";
 
 /* ---------------- DASHBOARD ---------------- */
 
@@ -452,7 +464,8 @@ function DashboardContent() {
   const [runs, setRuns] = useState([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [loadingRunDetails, setLoadingRunDetails] = useState(false);
-  
+  const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
+
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
   const [scatterData, setScatterData] = useState([]);
   const [issueStats, setIssueStats] = useState([]);
@@ -489,14 +502,48 @@ function DashboardContent() {
       setIssueStats([]);
       setWarnings([]);
       setExpandedGroups(new Set());
+      setDiagnosticsRunning(false);
       return;
     }
+
+    let pollInterval = null;
 
     async function load() {
       setLoadingRunDetails(true);
       try {
         const data = await fetchRunDetails(activeRunId);
         const rows = data.campaignData ?? [];
+
+        // Check diagnostics status
+        const diagnosticsComplete =
+          data.rawPayload?.diagnosticsComplete === true;
+        const diagnosticsFailed = data.rawPayload?.diagnosticsFailed === true;
+
+        if (!diagnosticsComplete && !diagnosticsFailed) {
+          // Diagnostics still running - start polling
+          setDiagnosticsRunning(true);
+
+          if (!pollInterval) {
+            pollInterval = setInterval(async () => {
+              const refreshed = await fetchRunDetails(activeRunId);
+              const stillRunning =
+                !refreshed.rawPayload?.diagnosticsComplete &&
+                !refreshed.rawPayload?.diagnosticsFailed;
+
+              if (!stillRunning) {
+                // Diagnostics completed or failed - reload full data
+                setDiagnosticsRunning(false);
+                clearInterval(pollInterval);
+                load(); // Reload to get issue groups
+              }
+            }, 5000); // Poll every 5 seconds
+          }
+        } else {
+          setDiagnosticsRunning(false);
+          if (pollInterval) {
+            clearInterval(pollInterval);
+          }
+        }
 
         /* METRICS */
         let impressions = 0,
@@ -571,6 +618,13 @@ function DashboardContent() {
     }
 
     load();
+
+    // Cleanup polling on unmount or when activeRunId changes
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
   }, [activeRunId]);
 
   /* ---------------- SORT + FILTER (MEMOIZED) ---------------- */
@@ -592,9 +646,12 @@ function DashboardContent() {
 
   /* ---------------- MEMOIZED CALLBACKS ---------------- */
 
-  const handleRunClick = useCallback((runId) => {
-    router.push(`/dashboard?run=${runId}`);
-  }, [router]);
+  const handleRunClick = useCallback(
+    (runId) => {
+      router.push(`/dashboard?run=${runId}`);
+    },
+    [router],
+  );
 
   const deleteRunConfirmed = useCallback(async () => {
     setDeleting(true);
@@ -610,16 +667,19 @@ function DashboardContent() {
     fetchRuns().then(setRuns);
   }, [activeRunId, router]);
 
-  const changeGroupStatus = useCallback(async (groupId, status) => {
-    setUpdatingGroupId(groupId);
-    await updateIssueStatus(groupId, status);
-    const refreshed = await fetchRunDetails(activeRunId);
-    setIssueGroups(refreshed.issueGroups || []);
-    setUpdatingGroupId(null);
-  }, [activeRunId]);
+  const changeGroupStatus = useCallback(
+    async (groupId, status) => {
+      setUpdatingGroupId(groupId);
+      await updateIssueStatus(groupId, status);
+      const refreshed = await fetchRunDetails(activeRunId);
+      setIssueGroups(refreshed.issueGroups || []);
+      setUpdatingGroupId(null);
+    },
+    [activeRunId],
+  );
 
   const toggleGroup = useCallback((id) => {
-    setExpandedGroups(prev => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -627,7 +687,7 @@ function DashboardContent() {
   }, []);
 
   const handleSortToggle = useCallback(() => {
-    setSortDesc(prev => !prev);
+    setSortDesc((prev) => !prev);
   }, []);
 
   const handleSeverityFilterChange = useCallback((e) => {
@@ -690,7 +750,8 @@ function DashboardContent() {
       )}
 
       {/* MAIN */}
-      <main className="flex-1 p-4 space-y-4">{/* Removed relative positioning */}
+      <main className="flex-1 p-4 space-y-4">
+        {/* Removed relative positioning */}
 
         {/* METRICS */}
         <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -700,6 +761,22 @@ function DashboardContent() {
           <MetricsCard label="CONVERSIONS" value={metrics.conversions} />
           <MetricsCard label="CTR" value={metrics.ctr} isCTR />
         </section>
+
+        {/* DIAGNOSTICS RUNNING INDICATOR */}
+        {diagnosticsRunning && (
+          <div className="bg-blue-900/30 border border-blue-700 rounded p-4 flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+            <div>
+              <div className="text-sm font-medium text-blue-300">
+                Running diagnostics...
+              </div>
+              <div className="text-xs text-blue-400 mt-0.5">
+                Analyzing campaign data for anomalies and issues. This may take
+                a few moments.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* WARNINGS */}
         {warnings.map((w, i) => (
@@ -714,7 +791,9 @@ function DashboardContent() {
             </h3>
 
             <ResponsiveContainer width="100%" height={320}>
-              <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
+              <ScatterChart
+                margin={{ top: 10, right: 10, bottom: 20, left: 10 }}
+              >
                 <CartesianGrid stroke="#334155" />
                 <XAxis
                   dataKey="spend"
@@ -780,9 +859,9 @@ function DashboardContent() {
                   }}
                   itemStyle={{ color: "#e5e7eb" }}
                 />
-                <Bar 
-                  dataKey="count" 
-                  fill="#818cf8" 
+                <Bar
+                  dataKey="count"
+                  fill="#818cf8"
                   radius={[4, 4, 0, 0]}
                   isAnimationActive={false}
                 />
@@ -884,10 +963,7 @@ function DashboardContent() {
 
       {/* MODAL */}
       {modalGroup && (
-        <OccurrenceDetailModal
-          group={modalGroup}
-          onClose={handleCloseModal}
-        />
+        <OccurrenceDetailModal group={modalGroup} onClose={handleCloseModal} />
       )}
     </div>
   );
@@ -895,14 +971,16 @@ function DashboardContent() {
 
 export default function Dashboard() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-500 mx-auto mb-4" />
-          <p className="text-slate-400">Loading dashboard...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-950">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-500 mx-auto mb-4" />
+            <p className="text-slate-400">Loading dashboard...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <DashboardContent />
     </Suspense>
   );

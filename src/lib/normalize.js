@@ -364,80 +364,116 @@ function detectIssues(current, rows, index, spend) {
   return issues;
 }
 
+/**
+ * Run anomaly diagnostics for a given analytics run
+ * Async operation - updates rawPayload.diagnosticsComplete when done
+ */
 export async function runAnomalyDiagnosticsForRun(runId) {
-  const allData = await prisma.campaignData.findMany({
-    where: { runId },
-    select: {
-      id: true,
-      campaign: true,
-      date: true,
-      impressions: true,
-      clicks: true,
-      spend: true,
-      conversions: true,
-    },
-    orderBy: [{ campaign: "asc" }, { date: "asc" }],
-  });
+  try {
+    const allData = await prisma.campaignData.findMany({
+      where: { runId },
+      select: {
+        id: true,
+        campaign: true,
+        date: true,
+        impressions: true,
+        clicks: true,
+        spend: true,
+        conversions: true,
+      },
+      orderBy: [{ campaign: "asc" }, { date: "asc" }],
+    });
 
-  if (allData.length === 0) return;
-
-  const campaignMap = new Map();
-  for (const row of allData) {
-    if (!campaignMap.has(row.campaign)) {
-      campaignMap.set(row.campaign, []);
+    if (allData.length === 0) {
+      // Mark as complete even if no data
+      await prisma.analyticsRun.update({
+        where: { id: runId },
+        data: {
+          rawPayload: {
+            diagnosticsComplete: true,
+            diagnosticsCompletedAt: new Date().toISOString(),
+          },
+        },
+      });
+      return;
     }
-    campaignMap.get(row.campaign).push(row);
-  }
 
-  const issueGroupsMap = new Map();
-  const occurrencesToCreate = [];
-  const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+    const campaignMap = new Map();
+    for (const row of allData) {
+      if (!campaignMap.has(row.campaign)) {
+        campaignMap.set(row.campaign, []);
+      }
+      campaignMap.get(row.campaign).push(row);
+    }
 
-  for (const [campaignName, rows] of campaignMap) {
-    for (let i = 0; i < rows.length; i++) {
-      const current = rows[i];
-      const spend = Number(current.spend);
-      const issues = detectIssues(current, rows, i, spend);
+    const issueGroupsMap = new Map();
+    const occurrencesToCreate = [];
+    const severityRank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
 
-      for (const issue of issues) {
-        const key = `${campaignName}_${issue.type}`;
+    for (const [campaignName, rows] of campaignMap) {
+      for (let i = 0; i < rows.length; i++) {
+        const current = rows[i];
+        const spend = Number(current.spend);
+        const issues = detectIssues(current, rows, i, spend);
 
-        if (!issueGroupsMap.has(key)) {
-          issueGroupsMap.set(key, {
-            runId,
-            campaign: campaignName,
-            type: issue.type,
-            severity: issue.severity,
-          });
-        } else {
-          const existing = issueGroupsMap.get(key);
-          if (severityRank[issue.severity] > severityRank[existing.severity]) {
-            existing.severity = issue.severity;
+        for (const issue of issues) {
+          const key = `${campaignName}_${issue.type}`;
+
+          if (!issueGroupsMap.has(key)) {
+            issueGroupsMap.set(key, {
+              runId,
+              campaign: campaignName,
+              type: issue.type,
+              severity: issue.severity,
+            });
+          } else {
+            const existing = issueGroupsMap.get(key);
+            if (
+              severityRank[issue.severity] > severityRank[existing.severity]
+            ) {
+              existing.severity = issue.severity;
+            }
           }
-        }
 
-        occurrencesToCreate.push({
-          campaignName,
-          type: issue.type,
-          campaignDataId: current.id,
-          date: current.date,
-          notes: issue.notes,
-        });
+          occurrencesToCreate.push({
+            campaignName,
+            type: issue.type,
+            campaignDataId: current.id,
+            date: current.date,
+            notes: issue.notes,
+          });
+        }
       }
     }
-  }
 
-  if (issueGroupsMap.size === 0) return;
+    if (issueGroupsMap.size === 0) {
+      // Mark as complete even if no issues found
+      await prisma.analyticsRun.update({
+        where: { id: runId },
+        data: {
+          rawPayload: {
+            diagnosticsComplete: true,
+            diagnosticsCompletedAt: new Date().toISOString(),
+            issueGroupCount: 0,
+            occurrenceCount: 0,
+          },
+        },
+      });
+      return;
+    }
 
-  await prisma.$transaction(async (tx) => {
+    // Remove transaction - operations are idempotent with skipDuplicates
+    // This prevents timeout issues on large datasets (>5 seconds)
     const issueGroupsArray = Array.from(issueGroupsMap.values());
 
-    await tx.issueGroup.createMany({
+    // Step 1: Create issue groups
+    await prisma.issueGroup.createMany({
       data: issueGroupsArray,
       skipDuplicates: true,
     });
 
-    const createdGroups = await tx.issueGroup.findMany({
+    // Step 2: Fetch created groups
+    const createdGroups = await prisma.issueGroup.findMany({
       where: { runId },
       select: {
         id: true,
@@ -446,11 +482,13 @@ export async function runAnomalyDiagnosticsForRun(runId) {
       },
     });
 
+    // Step 3: Build lookup map
     const groupLookup = new Map();
     for (const g of createdGroups) {
       groupLookup.set(`${g.campaign}_${g.type}`, g.id);
     }
 
+    // Step 4: Create occurrences
     const occurrenceData = occurrencesToCreate.map((occ) => ({
       issueGroupId: groupLookup.get(`${occ.campaignName}_${occ.type}`),
       campaignDataId: occ.campaignDataId,
@@ -459,12 +497,46 @@ export async function runAnomalyDiagnosticsForRun(runId) {
     }));
 
     if (occurrenceData.length > 0) {
-      await tx.issueOccurrence.createMany({
+      await prisma.issueOccurrence.createMany({
         data: occurrenceData,
         skipDuplicates: true,
       });
     }
-  });
+
+    // Mark diagnostics as complete
+    await prisma.analyticsRun.update({
+      where: { id: runId },
+      data: {
+        rawPayload: {
+          diagnosticsComplete: true,
+          diagnosticsCompletedAt: new Date().toISOString(),
+          issueGroupCount: issueGroupsArray.length,
+          occurrenceCount: occurrenceData.length,
+        },
+      },
+    });
+  } catch (error) {
+    console.error(`Diagnostics failed for run ${runId}:`, error);
+
+    // Mark as failed in database
+    await prisma.analyticsRun
+      .update({
+        where: { id: runId },
+        data: {
+          rawPayload: {
+            diagnosticsComplete: false,
+            diagnosticsFailed: true,
+            diagnosticsError: error.message,
+            diagnosticsFailedAt: new Date().toISOString(),
+          },
+        },
+      })
+      .catch((err) => {
+        console.error(`Failed to update run ${runId} with error status:`, err);
+      });
+
+    throw error;
+  }
 }
 
 /* Helper functions */
