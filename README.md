@@ -56,12 +56,14 @@ This guarantees data integrity.
 
 ### 3. Transactions
 
-All ingestion is wrapped in Prisma transactions:
+Run creation and campaign data inserts are wrapped in a Prisma transaction:
 
-- Either everything succeeds
-- Or nothing is written
+- Either the run and campaign data are fully written
+- Or nothing is persisted
 
-No more orphaned runs or partial inserts.
+
+Diagnostics are deterministic: the same dataset will always produce the same issues.
+They are also idempotent, allowing safe re-execution without corrupting data.
 
 ## 🚀 Features
 
@@ -146,7 +148,7 @@ After ingestion, the system runs rule-based anomaly detection.
 | Category | Technology |
 |----------|------------|
 | **Frontend** | Next.js (JavaScript), React, Tailwind CSS |
-| **Backend** | Next.js Server Actions |
+| **Backend** | Next.js Route Handlers (API Routes) + Server-side Processing |
 | **Database** | PostgreSQL with Prisma ORM |
 | **Charts** | Recharts |
 | **Date Handling** | date-fns |
@@ -212,9 +214,18 @@ POST /api/upload
 
 **Responses:**
 
-- `200 OK`: Upload successful
-- `422 Unprocessable Entity`: >50% invalid data
-- `400 Bad Request`: Malformed CSV
+- Returns `text/event-stream`
+- Emits progress events for:
+  - parsing
+  - normalization
+  - validation
+  - saving
+  - diagnostics
+  - done
+
+The connection remains open until diagnostics complete.
+
+If validation fails (>50% invalid rows), an `error` event is emitted and no data is written.
 
 ### API Ingest
 
@@ -255,32 +266,64 @@ POST /api/ingest
 ## 📄 Sample CSV Format
 
 ```csv
-date,impressions,clicks,spend,conversions
-2023-01-01,1000,50,100.0,5
-2023-01-02,1200,60,120.0,6
-2023-01-03,0,0,0.0,0
+date,campaign_name,impressions,clicks,spend,conversions
+2025-02-01,Brand_Search,1000,50,100.0,5
+2025-02-01,Generic_Search,1200,60,120.0,6
+2025-02-01,Performance_Max,0,0,0.0,0
 ```
+## ⚙️ Processing Model
+
+**Data ingestion follows a deterministic, staged pipeline:**
+
+- Parse (CSV only)
+- Normalize into a common schema
+- Validate rows and compute discard statistics
+- Hard fail if >50% invalid
+- Transactional write (run + campaign data)
+- Post-write diagnostics
+- Completion event
+
+## Streaming Upload Behavior ##
+
+The CSV endpoint (`/api/upload`) returns `text/event-stream`.
+
+**The server emits real-time progress updates:**
+
+- parsing
+- normalization
+- validation
+- saving
+- diagnostics
+- done
+
+The connection remains open until diagnostics complete.
+
+This avoids client polling while still providing immediate user feedback during long-running operations.
 
 ## 🏗️ Architecture
 
 ```
 src/
 ├── app/
-│   ├── actions.js          # Server actions for data processing and diagnostics
-│   ├── page.js             # Main dashboard
+│   ├── actions.js          # Server actions
+│   ├── dashboard/
+│   │   ├── page.jsx        # Main dashboard
+│   │   └── actions.js      # Client actions
 │   ├── upload/
-│   │   └── page.js         # Data upload page
+│   │   └── page.jsx        # Data upload page
 │   └── api/
 │       ├── upload/         # CSV upload endpoint
 │       └── ingest/         # JSON ingest endpoint
-└── prisma/
-    └── schema.prisma       # Database schema with CampaignData and Issue models
+├── prisma/
+│   └── schema.prisma       # Database schema with CampaignData and Issue models
+└── lib/
+    └── normalize.js        # Normalization, data processing and diagnostics
 ```
 
 **Key Design Principles:**
 
 - Clean separation between data ingestion, diagnostics logic, and UI
-- Server-side data processing with Next.js Server Actions
+- Server-side data processing with Next.js Route Handlers and server logic
 - Relational database schema for structured campaign data
 - Transaction-based ingestion for data integrity
 - Platform-agnostic normalization layer

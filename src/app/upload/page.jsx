@@ -121,7 +121,7 @@ export default function UploadPage() {
         body: JSON.stringify({
           csvText: text,
           source: "CSV",
-          filename: `CSV Upload - ${selectedFile.name} - ${new Date().toDateString()}`,
+          filename: selectedFile.name,
         }),
       });
 
