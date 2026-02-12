@@ -88,20 +88,14 @@ function formatDate(dateString) {
 
 function groupOccurrencesByDate(occurrences) {
   const grouped = {};
-
   occurrences.forEach((occ) => {
     const dateKey = new Date(occ.date).toDateString();
     if (!grouped[dateKey]) {
-      grouped[dateKey] = {
-        date: occ.date,
-        count: 0,
-        notes: [],
-      };
+      grouped[dateKey] = { date: occ.date, count: 0, notes: [] };
     }
     grouped[dateKey].count++;
     grouped[dateKey].notes.push(occ.notes);
   });
-
   return Object.values(grouped).sort(
     (a, b) => new Date(b.date) - new Date(a.date),
   );
@@ -110,7 +104,6 @@ function groupOccurrencesByDate(occurrences) {
 function getLast7DaysOccurrences(groupedOccurrences) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
   return groupedOccurrences.filter(
     (item) => new Date(item.date) >= sevenDaysAgo,
   );
@@ -118,15 +111,11 @@ function getLast7DaysOccurrences(groupedOccurrences) {
 
 function getDateRange(occurrences) {
   if (occurrences.length === 0) return "";
-
   const dates = occurrences.map((o) => new Date(o.date));
   const minDate = new Date(Math.min(...dates));
   const maxDate = new Date(Math.max(...dates));
-
-  if (minDate.toDateString() === maxDate.toDateString()) {
+  if (minDate.toDateString() === maxDate.toDateString())
     return formatDate(minDate);
-  }
-
   return `${formatDate(minDate)} - ${formatDate(maxDate)}`;
 }
 
@@ -157,32 +146,20 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
 
   const filteredOccurrences = useMemo(() => {
     if (!searchTerm) return group.occurrences;
-
     const searchLower = searchTerm.toLowerCase();
-
     return group.occurrences.filter((occ) => {
-      // Search in notes
       const notesMatch = occ.notes.toLowerCase().includes(searchLower);
-
-      // Search in formatted date (e.g., "Jan 15, 2024")
       const dateMatch = formatDate(occ.date)
         .toLowerCase()
         .includes(searchLower);
-
-      // Search in raw date string (e.g., "2024-01-15")
       const rawDateMatch = new Date(occ.date)
         .toISOString()
         .includes(searchLower);
-
-      // Search in issue type
       const typeMatch = group.type
         .toLowerCase()
         .replace(/_/g, " ")
         .includes(searchLower);
-
-      // Search in campaign name
       const campaignMatch = group.campaign.toLowerCase().includes(searchLower);
-
       return (
         notesMatch || dateMatch || rawDateMatch || typeMatch || campaignMatch
       );
@@ -225,11 +202,10 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
             className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm placeholder:text-slate-500"
           />
           <p className="text-xs text-slate-500 mt-1.5">
-            Try: dates like &#34;Jan 15&#34; or &#34;2024-01&#34;, keywords from
-            notes, issue type, or campaign name
+            Try: dates like &quot;Jan 15&quot; or &quot;2024-01&quot;, keywords
+            from notes, issue type, or campaign name
           </p>
         </div>
-        {/* </div> */}
 
         {/* Occurrences List */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
@@ -240,14 +216,10 @@ const OccurrenceDetailModal = memo(({ group, onClose }) => {
                   key={occ.id}
                   className="bg-slate-900 border border-slate-700 rounded p-3 text-sm"
                 >
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="flex-1">
-                      <div className="text-slate-300 mb-1">{occ.notes}</div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
-                        <Calendar size={12} />
-                        {formatDate(occ.date)}
-                      </div>
-                    </div>
+                  <div className="text-slate-300 mb-1">{occ.notes}</div>
+                  <div className="text-xs text-slate-500 flex items-center gap-1">
+                    <Calendar size={12} />
+                    {formatDate(occ.date)}
                   </div>
                 </div>
               ))}
@@ -349,7 +321,6 @@ const IssueGroupItem = memo(
             {isUpdating && (
               <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
             )}
-
             <select
               value={group.status}
               onChange={(e) => onStatusChange(group.id, e.target.value)}
@@ -377,12 +348,10 @@ const IssueGroupItem = memo(
               </div>
             </div>
 
-            {/* Recent Activity Header */}
-            <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+            <div className="text-xs font-semibold text-slate-300">
               📊 Recent Activity (Last 7 days):
             </div>
 
-            {/* Grouped Occurrences */}
             <div className="space-y-2">
               {displayedOccurrences.length > 0 ? (
                 displayedOccurrences.map((item, idx) => (
@@ -390,21 +359,17 @@ const IssueGroupItem = memo(
                     key={idx}
                     className="bg-slate-800/50 border border-slate-700 rounded p-3 text-xs"
                   >
-                    <div className="flex justify-between items-start gap-3">
-                      <div className="flex-1">
-                        <div className="font-medium text-slate-200 mb-1">
-                          {formatDate(item.date)}: {item.count} occurrence
-                          {item.count !== 1 ? "s" : ""}
-                        </div>
-                        <div className="text-slate-400">
-                          {item.notes[0]}
-                          {item.count > 1 && (
-                            <span className="ml-1 text-slate-500">
-                              (and {item.count - 1} more)
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                    <div className="font-medium text-slate-200 mb-1">
+                      {formatDate(item.date)}: {item.count} occurrence
+                      {item.count !== 1 ? "s" : ""}
+                    </div>
+                    <div className="text-slate-400">
+                      {item.notes[0]}
+                      {item.count > 1 && (
+                        <span className="ml-1 text-slate-500">
+                          (and {item.count - 1} more)
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))
@@ -415,7 +380,6 @@ const IssueGroupItem = memo(
               )}
             </div>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-3 pt-2">
               {hasMore && (
                 <button
@@ -425,11 +389,10 @@ const IssueGroupItem = memo(
                   Show more ({remainingCount} remaining)
                 </button>
               )}
-
               {group.occurrences.length > 3 && (
                 <button
                   onClick={() => onViewAll(group)}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors flex items-center gap-1"
+                  className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors"
                 >
                   View all {group.occurrences.length} in detail →
                 </button>
@@ -495,7 +458,6 @@ function DashboardContent() {
 
   useEffect(() => {
     if (!activeRunId) {
-      // Reset to empty state when no run is selected
       setMetrics(EMPTY_METRICS);
       setScatterData([]);
       setIssueGroups([]);
@@ -511,12 +473,10 @@ function DashboardContent() {
         const data = await fetchRunDetails(activeRunId);
         const rows = data.campaignData ?? [];
 
-        /* METRICS */
         let impressions = 0,
           clicks = 0,
           spend = 0,
           conversions = 0;
-
         rows.forEach((r) => {
           impressions += r.impressions;
           clicks += r.clicks;
@@ -531,16 +491,12 @@ function DashboardContent() {
           conversions,
           ctr: impressions ? clicks / impressions : 0,
         });
-
-        /* WARNINGS */
         setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
 
         const severityByCampaignDataId = {};
-
         (data.issueGroups || []).forEach((group) => {
           group.occurrences.forEach((occ) => {
             const existing = severityByCampaignDataId[occ.campaignDataId];
-
             if (
               !existing ||
               severityRank(group.severity) < severityRank(existing)
@@ -550,7 +506,6 @@ function DashboardContent() {
           });
         });
 
-        /* SCATTER */
         setScatterData(
           rows.map((r) => ({
             spend: Number(r.spend),
@@ -560,23 +515,16 @@ function DashboardContent() {
           })),
         );
 
-        /* ISSUE GROUPS */
         setIssueGroups(data.issueGroups || []);
 
-        /* ISSUE DISTRIBUTION (by occurrences) */
         const byType = {};
         (data.issueGroups || []).forEach((g) => {
           byType[g.type] = (byType[g.type] || 0) + g.occurrences.length;
         });
-
         setIssueStats(
-          Object.entries(byType).map(([type, count]) => ({
-            type,
-            count,
-          })),
+          Object.entries(byType).map(([type, count]) => ({ type, count })),
         );
 
-        // Reset expanded groups when switching runs
         setExpandedGroups(new Set());
       } finally {
         setLoadingRunDetails(false);
@@ -586,24 +534,20 @@ function DashboardContent() {
     load();
   }, [activeRunId]);
 
-  /* ---------------- SORT + FILTER (MEMOIZED) ---------------- */
+  /* ---------------- SORT + FILTER ---------------- */
 
   const visibleIssueGroups = useMemo(() => {
     let list = [...issueGroups];
-
-    if (severityFilter !== "ALL") {
+    if (severityFilter !== "ALL")
       list = list.filter((g) => g.severity === severityFilter);
-    }
-
     list.sort((a, b) => {
       const diff = severityRank(a.severity) - severityRank(b.severity);
       return sortDesc ? diff : -diff;
     });
-
     return list;
   }, [issueGroups, sortDesc, severityFilter]);
 
-  /* ---------------- MEMOIZED CALLBACKS ---------------- */
+  /* ---------------- CALLBACKS ---------------- */
 
   const handleRunClick = useCallback(
     (runId) => {
@@ -645,21 +589,16 @@ function DashboardContent() {
     });
   }, []);
 
-  const handleSortToggle = useCallback(() => {
-    setSortDesc((prev) => !prev);
-  }, []);
-
-  const handleSeverityFilterChange = useCallback((e) => {
-    setSeverityFilter(e.target.value);
-  }, []);
-
-  const handleViewAllOccurrences = useCallback((group) => {
-    setModalGroup(group);
-  }, []);
-
-  const handleCloseModal = useCallback(() => {
-    setModalGroup(null);
-  }, []);
+  const handleSortToggle = useCallback(() => setSortDesc((prev) => !prev), []);
+  const handleSeverityFilterChange = useCallback(
+    (e) => setSeverityFilter(e.target.value),
+    [],
+  );
+  const handleViewAllOccurrences = useCallback(
+    (group) => setModalGroup(group),
+    [],
+  );
+  const handleCloseModal = useCallback(() => setModalGroup(null), []);
 
   /* ---------------- RENDER ---------------- */
 
@@ -698,11 +637,11 @@ function DashboardContent() {
         </Link>
       </aside>
 
-      {/* LOADING OVERLAY - FIXED TO VIEWPORT */}
+      {/* LOADING OVERLAY — fixed to viewport, always centered regardless of scroll */}
       {loadingRunDetails && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+        <div className="fixed top-0 bottom-0 left-72 right-0 bg-slate-950/60 backdrop-blur-m z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg px-6 py-5 flex items-center gap-3 shadow-xl">
+            <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
             <span className="text-sm">Loading run details...</span>
           </div>
         </div>
@@ -710,8 +649,6 @@ function DashboardContent() {
 
       {/* MAIN */}
       <main className="flex-1 p-4 space-y-4">
-        {/* Removed relative positioning */}
-
         {/* METRICS */}
         <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <MetricsCard label="IMPRESSIONS" value={metrics.impressions} />
@@ -732,7 +669,6 @@ function DashboardContent() {
             <h3 className="flex items-center gap-2 text-sm mb-4">
               <Activity size={16} /> Spend vs Outcome
             </h3>
-
             <ResponsiveContainer width="100%" height={320}>
               <ScatterChart
                 margin={{ top: 10, right: 10, bottom: 20, left: 10 }}
@@ -764,10 +700,7 @@ function DashboardContent() {
                   }}
                 />
                 <Tooltip
-                  contentStyle={{
-                    background: "#334155",
-                    fontSize: 12,
-                  }}
+                  contentStyle={{ background: "#334155", fontSize: 12 }}
                   itemStyle={{ color: "#e5e7eb" }}
                 />
                 {SEVERITY_ORDER.map((sev) => (
@@ -789,7 +722,6 @@ function DashboardContent() {
             <h3 className="flex items-center gap-2 text-sm mb-4">
               <BarChart3 size={16} /> Issue Distribution
             </h3>
-
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={issueStats}>
                 <XAxis dataKey="type" interval={0} tick={{ fontSize: 12 }} />
@@ -820,16 +752,13 @@ function DashboardContent() {
               <h3 className="flex items-center gap-2 text-sm">
                 <Bug size={16} /> Issues
               </h3>
-
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleSortToggle}
                   className="flex items-center gap-1 text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors"
                 >
-                  <ArrowUpDown size={12} />
-                  Severity
+                  <ArrowUpDown size={12} /> Severity
                 </button>
-
                 <select
                   value={severityFilter}
                   onChange={handleSeverityFilterChange}
@@ -867,15 +796,13 @@ function DashboardContent() {
                 onClick={() => setConfirmingDelete(true)}
                 className="flex items-center gap-2 text-sm bg-red-600 hover:bg-red-700 px-4 py-2 rounded cursor-pointer transition-colors"
               >
-                <Trash2 size={14} />
-                Delete Run
+                <Trash2 size={14} /> Delete Run
               </button>
             ) : (
               <div className="flex items-center gap-3 text-sm bg-red-950/40 border border-red-800 px-4 py-3 rounded">
                 <span className="text-red-300">
                   This action cannot be reversed.
                 </span>
-
                 <button
                   disabled={deleting}
                   onClick={deleteRunConfirmed}
@@ -883,14 +810,12 @@ function DashboardContent() {
                 >
                   {deleting ? (
                     <span className="flex items-center gap-2">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Deleting…
+                      <Loader2 className="h-3 w-3 animate-spin" /> Deleting…
                     </span>
                   ) : (
                     "Confirm"
                   )}
                 </button>
-
                 <button
                   disabled={deleting}
                   onClick={() => setConfirmingDelete(false)}
