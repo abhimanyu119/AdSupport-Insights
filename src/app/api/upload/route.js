@@ -74,7 +74,6 @@ export async function POST(req) {
             step: "error",
             message: "CSV must contain a header row and at least one data row.",
           });
-          controller.close();
           return;
         }
 
@@ -119,7 +118,6 @@ export async function POST(req) {
             message: "No valid rows remain after validation.",
             warnings,
           });
-          controller.close();
           return;
         }
 
@@ -129,7 +127,6 @@ export async function POST(req) {
             message: `Upload rejected: ${discardedPct}% of rows are invalid (limit is 50%). Fix the data and try again.`,
             warnings,
           });
-          controller.close();
           return;
         }
 
@@ -157,7 +154,13 @@ export async function POST(req) {
         const run = await prisma.$transaction(async (tx) => {
           const createdRun = await tx.analyticsRun.create({
             data: {
-              name: `CSV Upload — ${new Date().toDateString()} — ${filename}`,
+              name: `${filename} - ${new Date().toLocaleString("en-GB", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).replace(",", "")}`,
               source: "CSV",
               platform: detectedPlatform || "unknown",
               warnings,

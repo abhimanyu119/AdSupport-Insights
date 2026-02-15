@@ -406,16 +406,33 @@ const IssueGroupItem = memo(
 );
 IssueGroupItem.displayName = "IssueGroupItem";
 
-const RunListItem = memo(({ run, isActive, onClick }) => (
-  <div
-    onClick={onClick}
-    className={`px-4 py-3 cursor-pointer border-b border-slate-800 ${
-      isActive ? "bg-slate-800" : "hover:bg-slate-800"
-    }`}
-  >
-    <div className="text-sm">{run.name}</div>
-  </div>
-));
+const SOURCE_BADGE = {
+  CSV: "bg-sky-500/20 text-sky-400 border border-sky-500/30",
+  API: "bg-violet-500/20 text-violet-400 border border-violet-500/30",
+};
+
+const RunListItem = memo(({ run, isActive, onClick }) => {
+  const source = run.source ?? "CSV";
+
+  return (
+    <div
+      onClick={onClick}
+      className={`flex flex-row gap-2 px-4 py-3 cursor-pointer border-b border-slate-800 transition-colors ${
+        isActive ? "bg-slate-800" : "hover:bg-slate-800"
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-0.5">
+        <span
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${SOURCE_BADGE[source] ?? SOURCE_BADGE.CSV}`}
+        >
+          {source}
+        </span>
+        
+      </div>
+      <div className="text-sm leading-snug">{run.name}</div>
+    </div>
+  );
+});
 RunListItem.displayName = "RunListItem";
 
 /* ---------------- DASHBOARD ---------------- */

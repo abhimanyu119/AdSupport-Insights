@@ -21,8 +21,10 @@ const STEPS = [
   { key: "diagnostics", label: "Running anomaly detection" },
 ];
 
-// Full ordered key list (done is not shown as a step row, just triggers redirect)
-const STEP_KEYS = [...STEPS.map((s) => s.key), "done", "error"];
+// Only real step keys — "done" and "error" are outcomes, not steps.
+// Keeping them out of STEP_KEYS is critical: if "error" were index 6,
+// every real step (index 0-4) would appear "done" when an error occurs.
+const STEP_KEYS = STEPS.map((s) => s.key);
 
 /* ─── Step icon ──────────────────────────────────────────────────── */
 
@@ -39,27 +41,26 @@ function StepIcon({ status }) {
 }
 
 /**
- * Returns one of: "idle" | "active" | "done" | "error"
+ * Returns "idle" | "active" | "done" | "error"
  *
- * Rules:
- *  - All steps before the current one → done
- *  - Current step → active (or "error" if processing errored on this step)
- *  - Steps after the current one → idle
- *  - If overall error: current step shows error, everything before is done,
- *    everything after is idle
+ * @param stepKey       - key of the step row being rendered
+ * @param currentStep   - last real step key from the server (never "error"/"done")
+ * @param erroredOnStep - step key that was active when the error fired (null = no error)
  */
-function resolveStatus(stepKey, currentStep, hasError) {
-  const currentIdx = STEP_KEYS.indexOf(currentStep ?? "");
+function resolveStatus(stepKey, currentStep, erroredOnStep) {
+  if (currentStep === "done") return "done";
+
   const thisIdx = STEP_KEYS.indexOf(stepKey);
+  const currentIdx = STEP_KEYS.indexOf(currentStep ?? "");
 
-  if (currentStep === "done") return "done"; // all complete
-
-  if (hasError) {
-    if (thisIdx < currentIdx) return "done";
-    if (thisIdx === currentIdx) return "error";
+  if (erroredOnStep !== null) {
+    const errorIdx = STEP_KEYS.indexOf(erroredOnStep);
+    if (thisIdx < errorIdx) return "done";
+    if (thisIdx === errorIdx) return "error";
     return "idle";
   }
 
+  if (currentIdx === -1) return "idle";
   if (thisIdx < currentIdx) return "done";
   if (thisIdx === currentIdx) return "active";
   return "idle";
@@ -71,10 +72,14 @@ export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
 
-  // Processing state
   const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState(null); // null = not started
-  const [stepMessages, setStepMessages] = useState({}); // stepKey → latest message string
+  // Last real step key received from the server ("parsing" | … | "done")
+  const [currentStep, setCurrentStep] = useState(null);
+  // Per-step message text from the server
+  const [stepMessages, setStepMessages] = useState({});
+  // Which step was active when an error occurred (null = no error)
+  const [erroredOnStep, setErroredOnStep] = useState(null);
+  // The server's error message string
   const [errorMessage, setErrorMessage] = useState(null);
 
   const inputRef = useRef(null);
@@ -89,9 +94,9 @@ export default function UploadPage() {
       return;
     }
     setSelectedFile(file);
-    // Clear any previous run state when a new file is picked
     setCurrentStep(null);
     setStepMessages({});
+    setErroredOnStep(null);
     setErrorMessage(null);
   }
 
@@ -110,6 +115,7 @@ export default function UploadPage() {
     setLoading(true);
     setCurrentStep(null);
     setStepMessages({});
+    setErroredOnStep(null);
     setErrorMessage(null);
 
     try {
@@ -125,7 +131,6 @@ export default function UploadPage() {
         }),
       });
 
-      // Non-2xx before the stream even starts (e.g. 400 bad body)
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
         throw new Error(err.error || "Upload failed");
@@ -135,6 +140,8 @@ export default function UploadPage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      // Track the last real step so we know which one errored
+      let lastRealStep = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -142,29 +149,39 @@ export default function UploadPage() {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE frames are separated by "\n\n"
         const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? ""; // keep any incomplete trailing frame
+        buffer = frames.pop() ?? "";
 
-        for (const frame of frames) {
-          const line = frame.trim();
+        for (const frameStr of frames) {
+          const line = frameStr.trim();
           if (!line.startsWith("data:")) continue;
 
           let event;
           try {
             event = JSON.parse(line.slice("data:".length).trim());
           } catch {
-            continue; // malformed frame, skip
+            continue;
           }
 
           if (event.step === "error") {
-            setCurrentStep("error");
+            // Pin the error to the step that was running when it failed.
+            // Also write the server's message into that step's row so the
+            // user sees exactly what went wrong inline, not just in the banner.
+            const failedStep = lastRealStep;
+            setErroredOnStep(failedStep);
             setErrorMessage(event.message);
+            if (failedStep && event.message) {
+              setStepMessages((prev) => ({
+                ...prev,
+                [failedStep]: event.message,
+              }));
+            }
             setLoading(false);
             return;
           }
 
-          // Update which step is active and store its message
+          // Normal progress event
+          lastRealStep = event.step;
           setCurrentStep(event.step);
           if (event.message) {
             setStepMessages((prev) => ({
@@ -174,7 +191,6 @@ export default function UploadPage() {
           }
 
           if (event.done && event.runId) {
-            // Small pause so the user sees the green "complete" state
             await new Promise((r) => setTimeout(r, 800));
             router.push(`/dashboard?run=${event.runId}`);
             return;
@@ -183,17 +199,18 @@ export default function UploadPage() {
       }
     } catch (err) {
       setErrorMessage(err.message || "Something went wrong. Please try again.");
-      setCurrentStep("error");
+      setErroredOnStep(null); // unknown which step, banner-only fallback
     } finally {
       setLoading(false);
     }
   }
 
-  /* ── Derived booleans ── */
+  /* ── Derived ── */
 
-  const hasError = currentStep === "error";
+  const hasError =
+    erroredOnStep !== null || (errorMessage !== null && !loading);
   const isComplete = currentStep === "done";
-  const showProgress = loading || currentStep !== null;
+  const showProgress = loading || currentStep !== null || hasError;
 
   /* ── Render ── */
 
@@ -230,7 +247,6 @@ export default function UploadPage() {
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
 
-          {/* Drop zone */}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -264,7 +280,6 @@ export default function UploadPage() {
             )}
           </div>
 
-          {/* Submit button */}
           <button
             type="submit"
             disabled={!selectedFile || loading}
@@ -283,15 +298,18 @@ export default function UploadPage() {
 
         {/* LIVE PROGRESS CARD */}
         {showProgress && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-1">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
             <h2 className="text-sm font-semibold text-slate-300 mb-4">
               Processing Status
             </h2>
 
-            {/* Step rows */}
             <div className="space-y-4">
               {STEPS.map((step) => {
-                const status = resolveStatus(step.key, currentStep, hasError);
+                const status = resolveStatus(
+                  step.key,
+                  currentStep,
+                  erroredOnStep,
+                );
                 const message = stepMessages[step.key];
 
                 return (
@@ -330,16 +348,12 @@ export default function UploadPage() {
               })}
             </div>
 
-            {/* Error banner */}
-            {hasError && errorMessage && (
+            {/* Error banner — shows when the error can't be pinned to a step
+                (e.g. network failure before any events arrived) */}
+            {hasError && errorMessage && !erroredOnStep && (
               <div className="mt-5 bg-red-900/30 border border-red-700 rounded-lg p-4 flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-red-300">
-                    Upload failed
-                  </p>
-                  <p className="text-xs text-red-400 mt-1">{errorMessage}</p>
-                </div>
+                <p className="text-sm text-red-300">{errorMessage}</p>
               </div>
             )}
 

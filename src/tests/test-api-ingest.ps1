@@ -1,5 +1,5 @@
 # Path to your CSV file
-$csvPath = "D:\adsupport-insights\src\tests\stress-test.csv"
+$csvPath = "D:\adsupport-insights\src\tests\sample.csv"
 
 # Read CSV into PowerShell objects
 $csvObjects = Import-Csv -Path $csvPath

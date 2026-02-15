@@ -124,7 +124,13 @@ export async function POST(req) {
         const run = await prisma.$transaction(async (tx) => {
           const createdRun = await tx.analyticsRun.create({
             data: {
-              name: `API Ingest — ${new Date().toDateString()}`,
+              name: `Ingest - ${new Date().toLocaleString("en-GB", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).replace(",", "")}`,
               source: "API",
               platform: detectedPlatform || "unknown",
               warnings,
